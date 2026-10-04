@@ -1,8 +1,16 @@
 export class DeskClient {
-  constructor(request,onExpired) { this.request=request; this.onExpired=onExpired; this.listeners=new Set(); this.errors=new Set(); this.retry=500; this.darkMode=false; }
+  constructor(request,onExpired) {
+    this.request=request; this.onExpired=onExpired; this.listeners=new Set(); this.errors=new Set(); this.retry=500; this.darkMode=false;
+    this.onOffline=()=>{
+      clearTimeout(this.timer);const socket=this.socket;this.socket=null;socket?.close();
+      for(const error of this.errors)error('连接中断，正在重新连接');
+    };
+    this.onOnline=()=>{if(this.listeners.size&&!this.socket)this.scheduleRetry();};
+  }
   command(action,payload={}) { return this.request('/api/command',{method:'POST',body:{action,payload}}); }
   subscribe(callback,error) {
     this.listeners.add(callback); this.errors.add(error);
+    if(!this.watchingNetwork){globalThis.addEventListener?.('offline',this.onOffline);globalThis.addEventListener?.('online',this.onOnline);this.watchingNetwork=true;}
     if(this.state) callback(this.state);
     if(!this.socket) this.open();
     return Promise.resolve(()=>{
@@ -28,11 +36,12 @@ export class DeskClient {
   }
   scheduleRetry() {
     if(!this.listeners.size) return;
+    clearTimeout(this.timer);
     this.timer=setTimeout(async()=>{
       try {await this.request('/api/session');this.open();}
       catch {this.scheduleRetry();}
     },this.retry);
     this.retry=Math.min(this.retry*2,15000);
   }
-  close() {clearTimeout(this.timer);const socket=this.socket;this.socket=null;socket?.close();this.state=null;}
+  close() {clearTimeout(this.timer);const socket=this.socket;this.socket=null;socket?.close();this.state=null;globalThis.removeEventListener?.('offline',this.onOffline);globalThis.removeEventListener?.('online',this.onOnline);this.watchingNetwork=false;}
 }

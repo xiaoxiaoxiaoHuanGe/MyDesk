@@ -33,3 +33,20 @@ test('real-time connection retries again after an offline session check fails',a
     stop();
   } finally {client.close();globalThis.location=priorLocation;globalThis.WebSocket=priorSocket;}
 });
+
+test('offline is reported without waiting for a WebSocket closing handshake, and online reconnects',async()=>{
+  const previous={location:globalThis.location,WebSocket:globalThis.WebSocket,addEventListener:globalThis.addEventListener,removeEventListener:globalThis.removeEventListener};
+  const events={},sockets=[],errors=[];
+  globalThis.location={href:'http://localhost/'};
+  globalThis.WebSocket=class{constructor(){sockets.push(this);}close(){/* Deliberately never emits onclose while offline. */}};
+  globalThis.addEventListener=(name,callback)=>events[name]=callback;
+  globalThis.removeEventListener=(name,callback)=>{if(events[name]===callback)delete events[name];};
+  const client=new DeskClient(async()=>({}),()=>{});client.retry=1;
+  try{
+    const stop=await client.subscribe(()=>{},error=>errors.push(error));
+    assert.equal(typeof events.offline,'function');events.offline();
+    assert.equal(errors.length,1,'Offline feedback must not depend on the transport handshake');
+    events.online();await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal(sockets.length,2);stop();assert.deepEqual(events,{});assert.equal(client.errors.size,0);
+  }finally{client.close();Object.assign(globalThis,previous);}
+});

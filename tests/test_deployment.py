@@ -1,4 +1,5 @@
 import unittest
+import re
 from pathlib import Path
 import yaml
 
@@ -28,6 +29,10 @@ class DeploymentTests(unittest.TestCase):
     def test_browser_never_persists_service_credentials_or_uses_ha_interface(self):
         for file in (ROOT/'frontend').glob('*.js'):
             text=file.read_text(encoding='utf-8')
-            self.assertNotIn('localStorage',text)
+            # Only the non-sensitive appearance enum may survive a reload.
+            storage=re.findall(r"localStorage\.(?:getItem|setItem)\(\s*(['\"])(.*?)\1",text)
+            self.assertEqual(text.count('localStorage.'),len(storage),'Storage keys must be explicit and allowlisted')
+            self.assertTrue(all(key=='mydesk-appearance' for _,key in storage),'Service credentials must never enter browser storage')
+            self.assertNotIn('sessionStorage',text)
             self.assertNotIn('callWS',text)
             self.assertNotIn('set hass',text)

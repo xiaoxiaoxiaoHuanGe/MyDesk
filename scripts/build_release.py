@@ -11,7 +11,7 @@ def build(output):
     files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore')]
     files.append(ROOT/'assets/mydesk-logo.png')
     files.append(ROOT/'.github/workflows/ci.yml')
-    rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webmanifest'},
+    rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webp','.webmanifest'},
            'docs':{'.md'},'scripts':{'.py','.sh','.cjs','.ps1'},'tests':{'.py','.mjs'}}
     for folder,extensions in rules.items():
         files.extend(path for path in (ROOT/folder).glob('*') if path.is_file() and path.suffix in extensions and not path.name.startswith(('ha_','start_local_ha','browser_check_ha','dev_server')))

@@ -1,88 +1,51 @@
-const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const path=require('node:path');
-
 (async()=>{
-  const base=process.env.MYDESK_BASE || 'http://127.0.0.1:8787';
-  const credentials=JSON.parse(fs.readFileSync(process.env.MYDESK_ACCESS || '.local/standalone/local-access.json','utf8'));
-  const channel=process.env.MYDESK_BROWSER_CHANNEL || 'msedge';
-  const browser=await chromium.launch({headless:true,...(channel==='chromium'?{}:{channel})});
-  try {
-    const context=await browser.newContext({viewport:{width:1440,height:1100}});
-    const page=await context.newPage();const errors=[];
-    await page.addInitScript(()=>{
-      const Original=window.WebSocket;window.__mydeskSockets=[];
-      window.WebSocket=class extends Original {constructor(...args){super(...args);window.__mydeskSockets.push(this);}};
-    });
-    page.on('pageerror',error=>errors.push(error.message));
-    await page.goto(base);
-    await page.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
-    fs.mkdirSync('artifacts',{recursive:true});
-    await page.screenshot({path:'artifacts/standalone-login.png',fullPage:true});
-    await page.getByLabel('用户名',{exact:true}).fill(credentials.username);
-    await page.getByLabel('密码',{exact:true}).fill('wrong');
-    await page.getByRole('button',{name:'登录',exact:true}).click();
-    await page.getByText('账号或密码不正确',{exact:true}).waitFor();
-    await page.getByLabel('密码',{exact:true}).fill(credentials.password);
-    await page.getByRole('button',{name:'登录',exact:true}).click();
-    await page.getByText('已连接',{exact:true}).waitFor({timeout:20000});
-    const sessionInfo=await context.request.get(base+'/api/session').then(r=>r.json());
-    const command=async(action,payload={})=>context.request.post(base+'/api/command',{headers:{'X-MyDesk-CSRF':sessionInfo.csrf},data:{action,payload}});
-    const state=await command('snapshot').then(r=>r.json());
-    for(const r of state.reminders.filter(r=>r.title.startsWith('独立版浏览器验证 '))) await command('reminder/action',{id:r.id,action:'complete'});
-    const second=await context.newPage();await second.goto(base);await second.getByText('已连接',{exact:true}).waitFor();
-    const reminder=page.locator('mydesk-card.tile-reminder');
-    const title='独立版浏览器验证 '+Date.now();
-    await reminder.getByRole('button',{name:'新建提醒'}).click();
-    await reminder.getByLabel('提醒内容',{exact:true}).fill(title);
-    await reminder.getByRole('button',{name:'30分钟后',exact:true}).click();
-    await reminder.getByRole('button',{name:'创建提醒',exact:true}).click();
-    await second.getByText(title,{exact:true}).waitFor();
-    await page.reload();await reminder.getByText(title,{exact:true}).waitFor();
-    await reminder.getByRole('combobox',{name:'稍后提醒：'+title}).selectOption('30');
-    await reminder.getByText('已延后',{exact:true}).waitFor();
-    await context.setOffline(true);
-    await page.evaluate(()=>window.__mydeskSockets.at(-1).close());
-    await page.getByText('连接异常',{exact:true}).waitFor({timeout:30000});
-    await context.setOffline(false);
-    await page.getByText('已连接',{exact:true}).waitFor({timeout:30000});
-    assert.equal(await page.getByText('连接中断，正在重新连接',{exact:true}).count(),0,'Reconnect should clear old error messages');
-    await reminder.getByRole('button',{name:'完成提醒：'+title}).click();
-    await second.getByText(title,{exact:true}).waitFor({state:'hidden'});
-    await page.screenshot({path:'artifacts/standalone-dashboard-desktop.png',fullPage:true});
-    for(const width of [375,768,1024,1440]) {
-      await page.setViewportSize({width,height:1000});
-      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    }
-    await page.setViewportSize({width:375,height:1000});
-    const positions=await Promise.all(['attention','reminder','automation','server','network','wxstep','mail'].map(mode=>page.locator('mydesk-card.tile-'+mode).boundingBox()));
-    for(let i=1;i<positions.length;i++)assert(positions[i].y>positions[i-1].y);
-    await page.screenshot({path:'artifacts/standalone-dashboard-mobile.png',fullPage:true});
-    await page.getByRole('link',{name:'设置',exact:true}).click();
-    await page.getByRole('heading',{name:'手机系统通知'}).waitFor();
-    const basic=page.locator('form[data-config="basic"]');
-    const retention=await basic.getByLabel('历史保留天数').inputValue();
-    await basic.getByRole('button',{name:'保存工作台设置'}).click();
-    await page.getByText('设置已保存。服务接入后将在后台同步。',{exact:true}).waitFor();
-    await page.reload();await basic.getByLabel('历史保留天数').waitFor();
-    assert.equal(await basic.getByLabel('历史保留天数').inputValue(),retention);
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    assert.equal(await page.locator('body').innerText().then(text=>text.includes('Home Assistant')),false);
-    await page.setViewportSize({width:1440,height:1100});
-    // Do not screenshot the secret-bearing webhook address.
-    await page.locator('#webhook-url').evaluate(node=>node.textContent='上报地址已隐藏');
-    await page.screenshot({path:'artifacts/standalone-settings.png',fullPage:true});
-    await page.getByRole('button',{name:'切换外观'}).click();
-    await page.getByRole('link',{name:'工作台',exact:true}).click();
-    await page.screenshot({path:'artifacts/standalone-dashboard-dark.png',fullPage:true});
-    await page.emulateMedia({reducedMotion:'reduce'});
-    await page.setViewportSize({width:812,height:375});
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    await page.getByRole('button',{name:'退出登录'}).click();
-    await page.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
-    await second.reload();await second.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
-    assert.deepEqual(errors,[]);
-    console.log('Independent browser passed: login/errors, live two-tab updates, create/reload/snooze/complete, offline reconnect, settings persistence, widths/dark/reduced-motion, logout revocation.');
-  } finally {await browser.close();}
-})().catch(error=>{console.error(error);process.exit(1);});
+ const base=process.env.MYDESK_BASE||'http://127.0.0.1:8787';
+ const credentials=JSON.parse(fs.readFileSync(process.env.MYDESK_ACCESS||'.local/standalone/local-access.json','utf8'));
+ const browser=await chromium.launch({headless:true,channel:process.env.MYDESK_BROWSER_CHANNEL||'msedge'});
+ const demo=process.env.MYDESK_WEB_DEMO==='1';
+ assert.equal(process.env.MYDESK_WEB_TEST_ISOLATED,'1','Run this mutation test only against a disposable local fixture; set MYDESK_WEB_TEST_ISOLATED=1.');
+ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Browser tests must target a local disposable server.');
+ try{
+  const context=await browser.newContext({viewport:{width:1440,height:1100}});const page=await context.newPage();const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(()=>{const Original=WebSocket;window.__deskSockets=[];window.WebSocket=class extends Original{constructor(...args){super(...args);window.__deskSockets.push(this);}};});
+  await page.goto(base);await page.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
+  await page.getByLabel('用户名',{exact:true}).fill(credentials.username);await page.getByLabel('密码',{exact:true}).fill('wrong-password');await page.getByRole('button',{name:'登录',exact:true}).click();await page.getByText('账号或密码不正确',{exact:true}).waitFor();
+  await page.getByLabel('密码',{exact:true}).fill(credentials.password);await page.getByRole('button',{name:'登录',exact:true}).click();await page.getByRole('heading',{name:'需要处理'}).waitFor();
+  const session=await context.request.get(base+'/api/session').then(r=>r.json());
+  const command=async(action,payload={})=>{const response=await context.request.post(base+'/api/command',{headers:{'X-MyDesk-CSRF':session.csrf},data:{action,payload}});assert(response.ok(),await response.text());return response.json();};
+  const second=await context.newPage();await second.goto(base+'/#reminders');await second.getByLabel('提醒事项',{exact:true}).waitFor();
+  const title='Web 浏览器验证 '+Date.now();const reminder=page.locator('#reminders-desk');
+  await page.getByRole('link',{name:'提醒',exact:true}).click();await reminder.getByLabel('提醒事项',{exact:true}).fill('尚未提交的草稿');
+  const external=await command('reminder/create',{title:title+' 临时',time:'30分钟后'});await reminder.getByText(title+' 临时',{exact:true}).waitFor();assert.equal(await reminder.getByLabel('提醒事项',{exact:true}).inputValue(),'尚未提交的草稿');
+  await page.getByRole('link',{name:'工作台',exact:true}).click();await page.getByRole('link',{name:'提醒',exact:true}).click();assert.equal(await reminder.getByLabel('提醒事项',{exact:true}).inputValue(),'尚未提交的草稿');
+  await reminder.getByRole('listbox',{name:'小时',exact:true}).press('End');await reminder.getByRole('listbox',{name:'分钟',exact:true}).press('End');const chosen=await reminder.locator('.time-picker input').evaluateAll(nodes=>nodes.map(n=>n.value));for(const width of [375,600,768,1440]){await page.getByRole('link',{name:'工作台',exact:true}).click();await page.setViewportSize({width,height:1000});await page.waitForTimeout(100);await page.getByRole('link',{name:'提醒',exact:true}).click();await page.waitForTimeout(100);}assert.deepEqual(await reminder.locator('.time-picker input').evaluateAll(nodes=>nodes.map(n=>n.value)),chosen,'Picker time must survive hidden pages and viewport changes');
+  await reminder.getByRole('button',{name:'切换倒计时',exact:true}).click();
+  await reminder.getByRole('listbox',{name:'分钟',exact:true}).press('Home');await reminder.getByRole('listbox',{name:'分钟',exact:true}).press('ArrowDown');
+  await reminder.getByRole('listbox',{name:'秒',exact:true}).press('Home');await reminder.getByRole('listbox',{name:'秒',exact:true}).press('ArrowDown');
+  await reminder.getByLabel('提醒事项',{exact:true}).fill(title);const started=Date.now();await reminder.getByRole('button',{name:'创建提醒',exact:true}).click();await second.getByText(title,{exact:true}).waitFor();
+  let snapshot=await command('snapshot');const created=snapshot.reminders.find(r=>r.title===title);assert(created);const seconds=(Date.parse(created.remind_at)-started)/1000;assert(seconds>59&&seconds<65,'Seconds countdown must use an absolute server-compatible time');
+  const summary=reminder.locator('.reminder-row').filter({has:page.getByText(title,{exact:true})});await summary.locator('.reminder-summary').click();await reminder.getByRole('dialog').getByRole('button',{name:'10 分钟',exact:true}).click();await reminder.getByText('已延后',{exact:true}).waitFor();
+  await summary.getByRole('button',{name:'完成提醒：'+title,exact:true}).click();await second.getByText(title,{exact:true}).waitFor({state:'hidden'});
+  await command('reminder/action',{id:external.id,action:'cancel'});
+  await context.setOffline(true);await page.evaluate(()=>document.querySelector('#desk')._client.socket?.close());try{await page.locator('.connection').waitFor({state:'visible'});}catch(error){console.log('Offline diagnostics',await page.evaluate(()=>({hidden:document.querySelector('.connection').hidden,sockets:__deskSockets.map(s=>s.readyState),active:__deskSockets.indexOf(document.querySelector('#desk')._client.socket),listeners:document.querySelector('#desk')._client.listeners.size,errors:document.querySelector('#desk')._client.errors.size,error:document.querySelector('#desk')._error})));throw error;}await context.setOffline(false);await page.locator('.connection').waitFor({state:'hidden',timeout:30000});
+  await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('heading',{name:'外部服务'}).waitFor();
+  await page.getByRole('button',{name:'深色',exact:true}).click();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');await page.reload();await page.getByRole('button',{name:'深色',exact:true}).waitFor();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');await page.getByRole('button',{name:'浅色',exact:true}).click();
+  await page.getByRole('button',{name:/时间与历史/}).click();const dialog=page.getByRole('dialog');await dialog.getByRole('combobox',{name:'时区',exact:true}).selectOption('Asia/Shanghai');const days=await dialog.getByLabel('历史保留天数',{exact:true}).inputValue();await dialog.getByRole('button',{name:'保存',exact:true}).click();await page.getByRole('button',{name:/时间与历史/}).click();assert.equal(await page.getByLabel('历史保留天数',{exact:true}).inputValue(),days);await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:/GitHub 任务 工作流/}).click();await page.getByRole('button',{name:'添加',exact:true}).click();const edit=page.getByRole('dialog');await edit.getByLabel('任务名称',{exact:true}).fill('浏览器测试任务');await edit.getByLabel('仓库所有者',{exact:true}).fill('demo-owner');await edit.getByLabel('仓库名称',{exact:true}).fill('browser-test');await edit.getByLabel('工作流文件名',{exact:true}).fill('checkin.yml');await edit.getByLabel('GitHub Token',{exact:true}).fill('demo-browser-independent-token');await edit.getByRole('button',{name:'保存任务',exact:true}).click();await page.getByRole('button',{name:/GitHub 任务 工作流/}).click();await page.getByRole('button',{name:/浏览器测试任务/}).click();assert.equal(await page.getByLabel('GitHub Token',{exact:true}).inputValue(),'');await page.getByRole('button',{name:'保存任务',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});let saved=await context.request.get(base+'/api/settings').then(r=>r.json());const added=Object.entries(saved.github_tasks).find(([,row])=>row.name==='浏览器测试任务');assert(added&&added[1].credential_set);assert(!('token' in added[1]));delete saved.github_tasks[added[0]];const removal=await context.request.put(base+'/api/settings',{headers:{'X-MyDesk-CSRF':session.csrf},data:{github_tasks:saved.github_tasks}});assert(removal.ok());
+  // Encrypted backup round trip uses the real authenticated endpoints.
+  await page.getByRole('button',{name:/配置备份 加密/}).click();const backup=page.getByRole('dialog');await backup.locator('.export-form').getByLabel('备份密码',{exact:true}).fill('browser-demo-backup-password');const downloadPromise=page.waitForEvent('download');await backup.getByRole('button',{name:'导出加密备份',exact:true}).click();const download=await downloadPromise;const data=JSON.parse(fs.readFileSync(await download.path(),'utf8'));assert(data.ciphertext&&!('settings' in data));await backup.locator('.import-form input[type=file]').setInputFiles({name:'demo.mydesk',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(data))});await backup.locator('.import-form').getByLabel('备份密码',{exact:true}).fill('browser-demo-backup-password');await backup.getByRole('button',{name:'预览恢复内容',exact:true}).click();await page.getByRole('heading',{name:'确认恢复配置'}).waitFor();await page.getByRole('button',{name:'确认恢复',exact:true}).click();await page.getByText('配置已恢复，原配置已加密保留',{exact:true}).waitFor();
+  if(demo){await page.getByRole('button',{name:'立即同步所有服务',exact:true}).click();await page.getByText('同步完成，请查看工作台。',{exact:true}).waitFor();}
+  assert.deepEqual(await page.evaluate(()=>Object.keys(localStorage)),['mydesk-appearance']);await page.getByRole('link',{name:'工作台',exact:true}).click();const mail=page.locator('mydesk-card.tile-mail');
+  if(demo){await mail.getByRole('combobox',{name:'选择邮箱'}).selectOption('work');assert.equal(await mail.locator('.mail-row').count(),5);await mail.getByRole('combobox',{name:'选择邮箱'}).selectOption('');assert.equal(await mail.locator('.mail-row').count(),3);await page.locator('mydesk-card.tile-network').getByRole('button',{name:'查看所有网络节点'}).click();const nodes=page.locator('mydesk-card.tile-network').getByRole('dialog');await nodes.getByRole('searchbox',{name:'搜索网络节点'}).fill('London');assert.equal(await nodes.locator('.node-row').count(),1);await page.keyboard.press('Escape');await nodes.waitFor({state:'hidden'});await page.locator('mydesk-card.tile-server').getByRole('button',{name:/主服务器/}).click();await page.getByText('17.25%',{exact:true}).last().waitFor();await page.keyboard.press('Escape');}
+  fs.mkdirSync('artifacts',{recursive:true});
+  for(const width of [320,375,600,768,1024,1440]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Dashboard horizontal overflow at '+width);for(const name of ['提醒','设置']){await page.getByRole('link',{name,exact:true}).click();await page.waitForTimeout(80);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,name+' overflow at '+width);}await page.getByRole('link',{name:'工作台',exact:true}).click();}
+  if(demo){await page.setViewportSize({width:1440,height:1100});await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-dashboard-desktop.png',fullPage:true});await page.getByRole('link',{name:'提醒',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-reminders-desktop.png',fullPage:true});await page.getByRole('link',{name:'设置',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-settings-desktop.png',fullPage:true});await page.getByRole('button',{name:'深色',exact:true}).click();await page.getByRole('link',{name:'工作台',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-dashboard-dark.png',fullPage:true});await page.setViewportSize({width:390,height:844});await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'浅色',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-settings-mobile.png',fullPage:true});await page.getByRole('link',{name:'提醒',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-reminders-mobile.png',fullPage:true});await page.getByRole('link',{name:'工作台',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:'artifacts/web-dashboard-mobile.png',fullPage:true});}
+  await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:812,height:375});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'退出账号',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'退出账号',exact:true}).click();await page.getByRole('heading',{name:'登录 MyDesk'}).waitFor();await second.reload();await second.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
+  assert.deepEqual(errors,[]);console.log('Web browser passed: login, two-tab live updates, draft preservation, seconds countdown, snooze/complete, offline recovery, appearance persistence, settings, independent GitHub credentials, encrypted backup round trip, filters, 6 responsive widths, dark/reduced motion, logout.');
+ }finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exit(1)});

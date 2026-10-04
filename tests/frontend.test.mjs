@@ -27,3 +27,33 @@ test('cumulative byte counts use readable units and never turn missing data into
     assert.equal(ui.formatByteCount(value), expected);
   for (const value of [null,undefined,true,'100',-1,NaN,Infinity]) assert.equal(ui.formatByteCount(value),'未采集');
 });
+
+test('countdown creates an absolute time including seconds and rejects an empty timer', () => {
+  assert.equal(typeof ui.countdownTime, 'function');
+  assert.equal(ui.countdownTime(0, 15, 30, new Date('2026-10-04T08:00:00Z')), '2026-10-04T08:15:30.000Z');
+  for (const args of [[0,0,0],[-1,0,0],[1,60,0],[0,0,60],[0,1.5,0]]) assert.throws(() => ui.countdownTime(...args));
+});
+
+test('picker defaults follow the server timezone, even when the browser has a different date', () => {
+  assert.equal(typeof ui.pickerDate, 'function');
+  assert.deepEqual(ui.pickerDate('Asia/Shanghai', new Date('2026-10-04T20:03:00Z')), {date:'2026-10-05',hour:'04',minute:'03'});
+});
+
+test('mail filter sorts without mutating the snapshot and keeps a selected account separate', () => {
+  assert.equal(typeof ui.selectMail, 'function');
+  const items=[1,4,2,3].map(n=>({subject:String(n),received_at:`2026-10-04T0${n}:00:00Z`}));
+  const feed={items,accounts:[{id:'work',items:[items[0]]}]};
+  assert.deepEqual(ui.selectMail(feed).map(m=>m.subject), ['4','3','2']);
+  assert.deepEqual(ui.selectMail(feed,'work').map(m=>m.subject), ['1']);
+  assert.deepEqual(items.map(m=>m.subject), ['1','4','2','3']);
+  assert.deepEqual(ui.selectMail(feed,'missing'), []);
+});
+
+test('three appearance choices resolve system preference without fabricating numeric metrics', () => {
+  assert.equal(typeof ui.resolveAppearance, 'function');
+  assert.equal(ui.resolveAppearance('system',true),'dark');
+  assert.equal(ui.resolveAppearance('light',true),'light');
+  assert.equal(ui.resolveAppearance('dark',false),'dark');
+  assert.equal(ui.formatMetric(17.2468), '17.25');
+  assert.equal(ui.formatMetric(null), '—');
+});

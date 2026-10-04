@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#247855">
-  <title>MyDesk · 我的工作台</title>
-  <link rel="icon" href="/frontend/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#F5F3EF">
+  <title>MyDesk</title>
+  <link rel="icon" href="/frontend/icon-192.png" type="image/png">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/frontend/app.css">
 </head>
 <body>
   <main id="login" class="login-stage" hidden>
     <section class="login-card" aria-labelledby="login-title">
-      <img class="login-logo" src="/frontend/icon.svg" width="60" height="60" alt="">
+      <img class="login-logo" src="/frontend/icon-192.png" width="64" height="64" alt="MyDesk">
       <span class="eyebrow">你的个人工作台</span>
       <h1 id="login-title">登录 MyDesk</h1>
       <p class="muted">在一个地方，照看重要的事。</p>
@@ -22,24 +22,33 @@
         <p id="login-error" role="alert"></p>
         <button class="primary" type="submit">登录</button>
       </form>
-      <p class="login-foot">个人状态 · 通知 · 快捷操作</p>
+      <p class="login-foot">把重要的事，安放在这里。</p>
     </section>
   </main>
   <div id="application" hidden>
     <aside class="navigation" aria-label="主导航">
-      <a class="nav-brand" href="#dashboard"><img src="/frontend/icon.svg" width="30" height="30" alt="">MyDesk</a>
-      <nav><a href="#dashboard" data-page="dashboard">工作台</a><a href="#settings" data-page="settings">设置</a></nav>
-      <div class="nav-bottom"><button id="theme" type="button">切换外观</button><span id="account-name"></span><button id="logout" type="button">退出登录</button></div>
+      <a class="nav-brand" href="#dashboard"><img src="/frontend/icon-192.png" width="40" height="40" alt=""><span>MyDesk<small>个人工作台</small></span></a>
+      <nav>
+        <a href="#dashboard" data-page="dashboard" data-icon="home" aria-label="工作台"><span>工作台</span></a>
+        <a href="#reminders" data-page="reminders" data-icon="bell" aria-label="提醒"><span>提醒</span></a>
+        <a href="#settings" data-page="settings" data-icon="settings" aria-label="设置"><span>设置</span></a>
+      </nav>
+      <div class="nav-bottom"><span class="nav-note">重要的事，一目了然。</span><a href="#settings" class="account-link"><span class="account-avatar">M</span><span id="account-name"></span><span data-icon="chevron"></span></a></div>
     </aside>
     <main class="app-content">
-      <div id="dashboard"><mydesk-card id="desk"></mydesk-card></div>
-      <section id="settings" class="settings-page" hidden>
-        <header><span class="eyebrow">MYDESK</span><h1>设置</h1><p class="muted">连接你的服务，选择提醒的方式。</p></header>
-        <div id="settings-feedback" role="status"></div>
-        <div id="settings-content"></div>
-      </section>
+      <header class="page-header">
+        <div class="header-date"><time id="today"></time><span class="connection" role="status" hidden><i></i>未连接</span></div>
+        <h1 id="page-title">MyDesk</h1>
+        <p id="page-description">把今天的事情，安静地安排好。</p>
+        <span id="quote-credit"></span>
+      </header>
+      <section id="dashboard" aria-label="工作台"><mydesk-card id="desk"></mydesk-card></section>
+      <section id="reminders" aria-label="提醒" hidden><mydesk-card id="reminders-desk"></mydesk-card></section>
+      <section id="settings" class="settings-page" aria-label="设置" hidden><div id="settings-content"></div></section>
+      <footer class="page-footer">MyDesk <span>把重要的事，安放在这里。</span></footer>
     </main>
   </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="/frontend/app.js"></script>
 </body>
 </html>

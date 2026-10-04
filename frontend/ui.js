@@ -20,3 +20,20 @@ export function formatByteCount(value) {
   while (value >= 1024 && unit < units.length - 1) {value /= 1024; unit++;}
   return `${value.toFixed(2)} ${units[unit]}`;
 }
+
+export function countdownTime(hours, minutes, seconds, now=new Date()) {
+  const parts=[hours,minutes,seconds].map(Number);
+  if (parts.some((v,i)=>!Number.isInteger(v)||v<0||v>(i===0?23:59)) || parts.every(v=>v===0)) throw new Error('请选择大于零的倒计时时间');
+  return new Date(now.getTime()+(parts[0]*3600+parts[1]*60+parts[2])*1000).toISOString();
+}
+export function pickerDate(timeZone='Asia/Shanghai', now=new Date()) {
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(p=>[p.type,p.value]));
+  return {date:`${parts.year}-${parts.month}-${parts.day}`,hour:parts.hour,minute:parts.minute};
+}
+export function selectMail(data, accountId='') {
+  const items=accountId ? data.accounts?.find(a=>a.id===accountId)?.items || [] : data.items || [];
+  const sorted=[...items].sort((a,b)=>new Date(b.received_at)-new Date(a.received_at));
+  return accountId ? sorted : sorted.slice(0,3);
+}
+export const resolveAppearance=(choice,dark)=>choice==='system'||!['light','dark'].includes(choice)?(dark?'dark':'light'):choice;
+export const formatMetric=value=>typeof value==='number'&&Number.isFinite(value)?value.toFixed(2):'—';
