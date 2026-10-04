@@ -1,0 +1,71 @@
+name: mydesk
+services:
+  mydesk:
+    container_name: mydesk
+    image: mydesk:1.0.0
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "mydesk", "--host", "0.0.0.0", "--port", "8787", "--data", "/data"]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYDESK_BIND_IP:-127.0.0.1}:8787:8787"
+    volumes:
+      - ../data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    networks: [mydesk]
+
+  beszel:
+    profiles: [monitoring]
+    container_name: mydesk-beszel
+    image: henrygd/beszel:${BESZEL_VERSION:-0.20.0}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./beszel/data:/beszel_data
+      - ./beszel/socket:/beszel_socket
+    environment:
+      APP_URL: ${BESZEL_PUBLIC_URL:-http://localhost:8090}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [mydesk]
+
+  beszel-agent:
+    profiles: [agent]
+    container_name: mydesk-beszel-agent
+    image: henrygd/beszel-agent:${BESZEL_VERSION:-0.20.0}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      HUB_URL: http://127.0.0.1:8090
+      TOKEN: ${BESZEL_AGENT_TOKEN:-}
+      KEY: ${BESZEL_AGENT_KEY:-}
+    volumes:
+      - ./beszel/agent:/var/lib/beszel-agent
+      - ./beszel/socket:/beszel_socket
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  mydesk:

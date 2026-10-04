@@ -1,0 +1,6 @@
+# Enable explicitly with scripts/start_local.py --phone --lan-ip <this computer's LAN IP>.
+services:
+  mydesk:
+    ports: !override
+      - "127.0.0.1:8787:8787"
+      - "${MYDESK_LAN_IP:?Set the computer LAN IPv4 address}:8443:8443"

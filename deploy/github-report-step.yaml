@@ -1,0 +1,15 @@
+# Copy scripts/report_task.py into the existing repository under scripts/.
+# Add an id to the EXISTING business step (example: id: checkin).
+# Keep the existing Feishu step unchanged. Append this step AFTER it.
+# Use the business step's real outcome, not the aggregate job.status.
+- name: Report result to MyDesk
+  if: always()
+  continue-on-error: true
+  env:
+    MYDESK_WEBHOOK_URL: ${{ secrets.MYDESK_WEBHOOK_URL }}
+    MYDESK_TASK_ID: glados
+    MYDESK_TASK_NAME: GLaDOS
+    MYDESK_TASK_STATUS: ${{ steps.checkin.outcome == 'success' && 'success' || 'failed' }}
+    # If the existing script exposes a safe message, use its output here.
+    MYDESK_TASK_MESSAGE: ${{ steps.checkin.outputs.message || (steps.checkin.outcome == 'success' && '签到成功' || '签到失败，请查看 Actions 日志') }}
+  run: python3 scripts/report_task.py

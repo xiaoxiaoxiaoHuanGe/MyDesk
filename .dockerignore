@@ -1,0 +1,13 @@
+**
+!requirements.txt
+!mydesk/
+!mydesk/*.py
+!frontend/
+!frontend/*.js
+!frontend/*.css
+!frontend/*.html
+!frontend/*.svg
+!frontend/*.png
+!frontend/*.webmanifest
+!deploy/
+!deploy/Dockerfile

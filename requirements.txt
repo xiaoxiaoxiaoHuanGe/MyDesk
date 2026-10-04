@@ -1,0 +1,4 @@
+aiohttp==3.13.3
+tzdata==2025.3
+pywebpush==2.5.0
+cryptography==47.0.0
