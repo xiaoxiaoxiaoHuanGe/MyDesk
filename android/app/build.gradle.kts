@@ -19,6 +19,7 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
 tasks.matching {it.name == "preReleaseBuild"}.configureEach {dependsOn(verifyReleaseSigning)}
 
 tasks.withType<Test>().configureEach {
+    doFirst { rootProject.file("../.local/build-home").mkdirs() }
     systemProperty("user.home", rootProject.file("../.local/build-home").absolutePath)
     systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
 }
