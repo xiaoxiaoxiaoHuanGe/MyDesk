@@ -71,6 +71,7 @@ sudo cat data/LOCAL_ACCESS.md
 
 系统要求 **Android 8.0 或更高版本**。正式版验证系统信任的 HTTPS 证书；首次创建提醒前，按 APP 引导授予通知和准确提醒权限。
 
+> [!NOTE]
 > APP 需要连接你部署的 MyDesk 后端。仓库不提供公共服务器，也不内置任何个人服务地址或接入凭据。
 
 ### 3. 接入需要的服务
@@ -108,6 +109,7 @@ sudo cat data/LOCAL_ACCESS.md
 ## 架构与开发
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#eef2f6', 'primaryBorderColor': '#526273', 'primaryTextColor': '#18212b', 'lineColor': '#526273'}}}%%
 flowchart LR
     App[Android · Kotlin / Compose] <-->|HTTPS / WebSocket| API[MyDesk · Python / aiohttp]
     API --> DB[(SQLite / 私有配置)]
@@ -134,6 +136,9 @@ Android 构建及正式签名步骤见 [Android 开发说明](android/README.md)
 
 ## 常见问题
 
+<details>
+<summary>代理、工作流、多用户与 APK 升级</summary>
+
 **手机需要一直开代理吗？**  
 不需要。外部服务由后端查询。Gmail 可为每个邮箱设置 HTTP 代理，代理地址指后端能访问的地址。
 
@@ -145,6 +150,8 @@ Android 构建及正式签名步骤见 [Android 开发说明](android/README.md)
 
 **可以从之前的调试 APK 直接升级吗？**  
 调试版和正式版签名不同，Android 无法直接覆盖安装。切换前先同步待处理操作并导出配置备份；首次安装正式版后重新登录、检查权限和提醒。后续正式版使用同一签名，可正常升级。
+
+</details>
 
 ## 参与项目
 
