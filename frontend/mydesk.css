@@ -120,6 +120,20 @@
 .snooze-options button{flex:1;font-size:12px}
 .detail-hero{display:flex;align-items:center;gap:12px;padding:18px;background:var(--low);border-radius:16px;color:var(--accent);font-size:13px;margin-bottom:12px}
 .detail-grid{padding:0 4px}
+.attention-item{width:100%;text-align:left;color:var(--text);min-height:48px;align-items:center}
+.attention-item>span:nth-child(2){flex:1;min-width:0}
+.attention-message{display:block;color:var(--muted);margin-top:5px;overflow-wrap:anywhere}
+.attention-item>svg{width:18px;height:18px;flex-shrink:0}
+.plan-summary{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.plan-summary p{color:var(--muted);margin-top:8px;font-size:13px}
+.plan-summary .dialog-actions{flex-wrap:wrap}
+.plan-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.preset-options{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.preset-options [aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
+.plan-form .dialog-actions{flex-wrap:wrap}
+.plan-live,.plan-records{margin-top:18px}
+.plan-live p,.plan-records p{margin-top:8px;overflow-wrap:anywhere}
+@media(max-width:450px){.plan-fields{grid-template-columns:1fr}}
 @media(max-width:1100px){.grid,.reminders-layout{gap:18px}.card{padding:22px}.metrics{gap:12px}.row-right time{max-width:70px;text-align:right}}
 @media(max-width:950px){.grid{grid-template-columns:1fr}.reminders-layout{grid-template-columns:1fr}.attention{height:268px}.row-right time{max-width:none}.compose{max-width:none}}
 @media(max-width:600px){.grid,.column,.reminders-layout{gap:16px}.card{padding:22px 20px;border-radius:22px}.attention{height:260px}.card-header{margin-bottom:20px}.task-symbol{display:none}.row-right{gap:6px}.row-right time{font-size:11px}.time-picker{padding:16px 8px}.wheel button{font-size:25px}.form-actions button{min-height:48px}.network-summary{gap:8px}.mail-row-bottom{gap:8px}}

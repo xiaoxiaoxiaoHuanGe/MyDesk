@@ -15,7 +15,7 @@ def build(output):
            'docs':{'.md'},'scripts':{'.py','.sh','.cjs','.ps1'},'tests':{'.py','.mjs'}}
     for folder,extensions in rules.items():
         files.extend(path for path in (ROOT/folder).glob('*') if path.is_file() and path.suffix in extensions and not path.name.startswith(('ha_','start_local_ha','browser_check_ha','dev_server')))
-    files.extend(ROOT/'deploy'/name for name in ['Dockerfile','compose.yaml','compose.local.yaml','compose.phone.yaml','compose.server.yaml','mydesk-ping.conf','.env.example','openresty-location.conf','github-report-step.yaml'])
+    files.extend(ROOT/'deploy'/name for name in ['Dockerfile','compose.yaml','compose.local.yaml','compose.phone.yaml','compose.server.yaml','mydesk-ping.conf','.env.example','openresty-location.conf'])
     android=ROOT/'android'
     for path in android.rglob('*'):
         relative=path.relative_to(android)
@@ -30,5 +30,5 @@ def build(output):
 
 
 if __name__=='__main__':
-    output=build(ROOT/'dist/MyDesk-1.0.0-source.zip')
+    output=build(ROOT/'dist/MyDesk-1.1.0-source.zip')
     print(f'Release: {output}')

@@ -1,8 +1,8 @@
 import {escapeHtml as e} from './ui.js';
 import {icon} from './icons.js';
 
-export function openDialog(title,body,{root=document.body,wide=false}={}) {
-  root.querySelector('dialog')?.close();
+export function openDialog(title,body,{root=document.body,wide=false,replace=true}={}) {
+  if(replace)root.querySelector('dialog')?.close();
   const previous=root instanceof ShadowRoot?root.activeElement:document.activeElement;
   const dialog=document.createElement('dialog');dialog.className=wide?'wide':'';
   dialog.innerHTML=`<div class="sheet-handle" aria-hidden="true"></div><header class="dialog-heading"><div><span class="eyebrow">MYDESK</span><h2>${e(title)}</h2></div><button class="icon-button close-dialog" type="button" aria-label="关闭窗口">${icon('close')}</button></header><div class="dialog-content">${body}</div><p class="dialog-feedback" role="status"></p>`;
@@ -21,7 +21,7 @@ export function openDialog(title,body,{root=document.body,wide=false}={}) {
   dialog.feedback=(text,error=false)=>{const node=dialog.querySelector('.dialog-feedback');node.textContent=text;node.classList.toggle('error',error);};
   return dialog;
 }
-export async function confirmDialog(title,message,accept='确认') {
-  const dialog=openDialog(title,`<p class="muted">${e(message)}</p><div class="dialog-actions"><button class="secondary" data-no>取消</button><button class="primary" data-yes>${e(accept)}</button></div>`);
+export async function confirmDialog(title,message,accept='确认',options={}) {
+  const dialog=openDialog(title,`<p class="muted">${e(message)}</p><div class="dialog-actions"><button class="secondary" data-no>取消</button><button class="primary" data-yes>${e(accept)}</button></div>`,options);
   return new Promise(resolve=>{let result=false;dialog.querySelector('[data-no]').onclick=()=>dialog.close();dialog.querySelector('[data-yes]').onclick=()=>{result=true;dialog.close();};dialog.addEventListener('close',()=>resolve(result),{once:true});});
 }

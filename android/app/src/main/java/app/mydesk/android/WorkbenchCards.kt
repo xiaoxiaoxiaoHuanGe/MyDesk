@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
     }
 }
 
-@Composable internal fun WorkbenchAttentionCard(attention: List<kotlinx.serialization.json.JsonObject>,hasSnapshot: Boolean) {
+@Composable internal fun WorkbenchAttentionCard(attention: List<kotlinx.serialization.json.JsonObject>,hasSnapshot: Boolean,onOpen: (kotlinx.serialization.json.JsonObject)->Unit={}) {
     Card(Modifier.fillMaxWidth().height(280.dp).testTag("attention-card"),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),shape=MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
             LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("attention-list"),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 if(attention.isEmpty()) item {Text(if(hasSnapshot) "当前没有待处理事项" else "等待首次同步",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 items(attention) {entry ->
-                    Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
+                    Surface(onClick={onOpen(entry)},shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Text(entry.text("title"),style=MaterialTheme.typography.titleSmall)
                             Text(entry.text("message"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

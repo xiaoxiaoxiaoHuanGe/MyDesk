@@ -165,6 +165,8 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     }
     suspend fun loadHistoryPage(taskId: String?,before: Long?,limit: Int): List<JsonObject> =
         authorized {repo.command("history",buildJsonObject {put("limit",limit);before?.let {put("before",it)};taskId?.let {put("task_id",it)}})}.jsonArray.map {it.jsonObject}
+    suspend fun loadStepHistory(runId: String,before: Int?): List<JsonObject> =
+        authorized {repo.command("wxstep/plan/history",buildJsonObject {put("run_id",runId);put("limit",100);before?.let {put("before",it)}})}.jsonArray.map {it.jsonObject}
     fun startForeground() {
         wantsForeground=true
         if (foreground?.isActive == true || !ready.isCompleted) return

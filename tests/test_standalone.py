@@ -58,6 +58,26 @@ class StandaloneTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(self.access['password'].encode(), stored)
         self.assertNotIn(cookie.value.encode(), stored)
 
+    async def test_step_plan_commands_require_session_and_csrf(self):
+        response=await self.client.post('/api/command',json={'action':'wxstep/plan/start','payload':{}})
+        self.assertEqual(response.status,401)
+        await self.login()
+        response=await self.client.post('/api/command',json={'action':'wxstep/preset/save','payload':{}})
+        self.assertEqual(response.status,403)
+
+    async def test_step_preset_api_is_fill_only_and_revision_checked(self):
+        await self.login()
+        spec=dict(name='散步',start=1000,increment=30,interval_minutes=3,target=1090)
+        response=await self.command('wxstep/preset/save',spec)
+        self.assertEqual(response.status,200)
+        saved=await response.json()
+        self.assertEqual(saved['presets'][0]['name'],'散步')
+        self.assertIsNone(saved['run'])
+        response=await self.command('wxstep/preset/save',dict(**spec,revision='stale'))
+        self.assertEqual(response.status,400)
+        response=await self.command('wxstep/preset/save',{**spec,'increment':0})
+        self.assertEqual(response.status,400)
+
     async def test_private_http_and_websocket_require_login(self):
         for path in ['/api/session','/api/settings','/api/notifications']:
             response = await self.client.get(path)

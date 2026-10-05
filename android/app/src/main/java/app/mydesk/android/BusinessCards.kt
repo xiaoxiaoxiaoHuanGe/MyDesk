@@ -146,13 +146,13 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
     }
 }
 
-@Composable internal fun StepsCard(snapshot: JsonObject,busy: Boolean,command: (String,JsonObject)->Unit) {
+@Composable internal fun StepsCard(snapshot: JsonObject,busy: Boolean,command: (String,JsonObject)->Unit,openPlan: (Boolean)->Unit={}) {
     var steps by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var release by remember { mutableStateOf(false) }
     val job=snapshot.obj("wxstep")
     val active=job.text("status") in setOf("dispatching","queued","running","tracking_error")
-    DeskCard("微信步数") {
+    DeskCard("微信步数",headerAction={TextButton({openPlan(false)}) {Text("渐进任务")}}) {
         if(snapshot.obj("configured").text("github") != "true") Text("微信步数尚未配置，在设置中连接步数工作流。")
         if(job.isNotEmpty()) StepsResult(job)
         if(job.text("status") == "tracking_error") TextButton({release=true}) {Text("检查后结束本地跟踪")}
@@ -163,6 +163,13 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
             trailingIcon={DeskButton(submit,modifier=Modifier.padding(end=8.dp).semantics {contentDescription="提交步数"},
                 enabled=steps.isNotBlank() && !busy && !active && snapshot.obj("configured").text("github") == "true") {Text("提交")}})
 
+        val plan=snapshot.obj("wxstep_plan")
+        val round=plan.obj("run")
+        if(round.isNotEmpty()) {
+            HorizontalDivider()
+            StepPlanStatus(round,snapshot.text("timezone","Asia/Shanghai"),busy,{action->command("wxstep/plan/$action",buildJsonObject {put("run_id",round.text("id"))})},{openPlan(true)})
+        }
+        if(plan.obj("settings").text("daily")=="true") Text("每日 ${plan.obj("settings").text("start_time")} · 已启用",style=MaterialTheme.typography.bodySmall)
     }
     if(release) AlertDialog(onDismissRequest={release=false},title={Text("结束本地跟踪？")},text={Text("请先在 GitHub Actions 确认本次任务。此操作不会取消 GitHub 上的任务。")},confirmButton={TextButton({release=false; command("wxstep/release",buildJsonObject {put("confirmed",true)})}) {Text("已检查，结束跟踪")}},dismissButton={TextButton({release=false}) {Text("取消")}})
 }

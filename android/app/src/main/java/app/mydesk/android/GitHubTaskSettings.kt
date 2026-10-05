@@ -30,10 +30,11 @@ internal fun githubPreset(key: String): JsonObject=buildJsonObject {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun GitHubTaskSettings(settings: JsonObject,busy: Boolean,save: (JsonObject,()->Unit)->Unit,
-    onClose: ()->Unit,checkTask: (String)->Unit,feedback: String) {
-    var mode by remember {mutableStateOf("")}
-    var key by remember {mutableStateOf("")}
-    var draft by remember {mutableStateOf(buildJsonObject {})}
+    onClose: ()->Unit,checkTask: (String)->Unit,feedback: String,initialId: String?=null) {
+    val initial=if(initialId=="wxstep") settings.obj("github") else settings.obj("github_tasks").obj(initialId ?: "")
+    var mode by remember {mutableStateOf(if(initial.isEmpty()) "" else "edit")}
+    var key by remember {mutableStateOf(initialId ?: "")}
+    var draft by remember {mutableStateOf(initial)}
     var remove by remember {mutableStateOf(false)}
     val tasks=settings.obj("github_tasks")
     fun edit(id: String,value: JsonObject) {key=id;draft=value;mode="edit"}

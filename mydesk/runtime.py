@@ -11,6 +11,8 @@ from .config import mail_accounts,server_sources
 from .mail_proxy import MailProxyError
 from .github_checkins import CheckinPoller, task_binding, legacy_binding
 from .daily_quote import poll_quote,FALLBACK
+from .step_plans import StepPlans
+from .attention import actionable_attention
 
 
 GITHUB_POLL_SECONDS = 600
@@ -33,6 +35,29 @@ class Runtime:
         self.last_mail_poll = None
         self.quote_lock=asyncio.Lock()
         self.configure_checkins()
+        self.step_plans = StepPlans(desk)
+        self.step_dispatch_lock = asyncio.Lock()
+
+    async def steps_db(self, method, *args):
+        return await self.executor(getattr(self.step_plans, method), *args)
+
+    async def dispatch_steps(self, job):
+        await self.publish()
+        try:
+            details = await self.github.dispatch(job['steps'])
+            await self.db('update_job',job['id'],status='queued',message='GitHub Actions 排队中',**details)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc,ValueError) else '提交连接异常，结果不确定；请检查 GitHub Actions'
+            await self.db('update_job',job['id'],status='tracking_error',message=message)
+        await self.steps_db('reconcile',now_utc())
+
+    async def advance_steps(self, now):
+        # Controls never wait for this network lock; a stop persists immediately.
+        if self.step_dispatch_lock.locked():return
+        async with self.step_dispatch_lock:
+            await self.steps_db('reconcile',now)
+            job=await self.steps_db('claim',now,self.config)
+            if job:await self.dispatch_steps(job)
 
     def configure_checkins(self):
         tasks=self.config.get('github_tasks',{})
@@ -87,12 +112,20 @@ class Runtime:
         state['links'] = {'gmail': 'https://mail.google.com/', 'beszel': self.config.get('beszel', {}).get('public_url')}
         if self.notification_error:
             state['attention'].append(dict(kind='integration', id='notifications', title='手机通知', message=self.notification_error))
+        state['wxstep_plan']=await self.steps_db('snapshot')
+        run=state['wxstep_plan']['run']
+        if run and run['status']=='paused':
+            state['attention'].append(dict(kind='steps',id=run['id'],title='微信步数 · '+run['name'],message=run['message']))
+        elif state.get('wxstep') and state['wxstep']['status'] in ('failed','tracking_error'):
+            state['attention'].append(dict(kind='steps',id=state['wxstep']['id'],title='微信步数提交',message=state['wxstep']['message']))
+        state['attention']=actionable_attention(state)
         return state
 
     async def recover(self):
         for job in await self.db('active_jobs'):
             if job['status'] == 'dispatching' and not job['run_id']:
                 await self.db('update_job', job['id'], status='tracking_error', message='服务在提交时重启，结果不确定；请先检查 GitHub Actions')
+        await self.steps_db('reconcile',now_utc())
 
     async def command(self, action, payload, now=None):
         now = now or now_utc()
@@ -107,6 +140,23 @@ class Runtime:
             return await self.snapshot(now)
         if action == 'history':
             return await self.db('task_history', payload.get('limit', 100), payload.get('before'),payload.get('task_id'))
+        if action.startswith('wxstep/plan/') or action.startswith('wxstep/preset/'):
+            kind=action.rsplit('/',1)[1]
+            if action.startswith('wxstep/preset/'):
+                result=await self.steps_db('preset',kind,payload)
+            elif kind=='save':result=await self.steps_db('configure',payload,now,self.config)
+            elif kind=='history':return await self.steps_db('history',payload.get('run_id'),payload.get('limit',100),payload.get('before'))
+            elif kind=='start':
+                if not self.github:raise ValueError('请先配置微信步数工作流')
+                await self.steps_db('start',payload,now,self.config)
+                await self.advance_steps(now)
+                result=await self.steps_db('snapshot')
+            elif kind in ('stop','disable','resume'):
+                result=await self.steps_db('control',kind,payload,now,self.config)
+                if kind=='resume':await self.advance_steps(now);result=await self.steps_db('snapshot')
+            else:raise ValueError('不支持的步数计划操作')
+            await self.publish()
+            return result
         if action == 'service/check':
             kind=payload.get('kind');key=payload.get('id')
             entries=mail_accounts(self.config) if kind=='mail' else server_sources(self.config) if kind=='servers' else {}
@@ -138,19 +188,15 @@ class Runtime:
             if not self.github:
                 raise ValueError('请先在服务器配置 GitHub 仓库和 Token')
             validate_steps(payload.get('steps'))
-            result = await self.db('create_job', payload['steps'], now)
-            await self.publish()
-            try:
-                details = await self.github.dispatch(payload['steps'])
-                await self.db('update_job', result['id'], status='queued', message='GitHub Actions 排队中', **details)
-            except ValueError as exc:
-                await self.db('update_job', result['id'], status='tracking_error', message=str(exc))
+            result = await self.steps_db('manual',payload['steps'],now,self.config)
+            await self.dispatch_steps(result)
             result = (await self.snapshot(now))['wxstep']
         elif action == 'wxstep/release':
             jobs = await self.db('active_jobs')
             if not jobs or jobs[0]['status'] != 'tracking_error' or payload.get('confirmed') is not True:
                 raise ValueError('请先检查 GitHub Actions，确认可以结束本地跟踪')
             await self.db('update_job', jobs[0]['id'], status='failed', message='用户结束了本地跟踪；GitHub 上的任务不会被取消')
+            await self.steps_db('reconcile',now)
             result = {'released': True}
         elif action == 'notifications/test':
             if not self.config.get('notify_targets'):
@@ -208,6 +254,7 @@ class Runtime:
                         await self.db('update_job', job['id'], status=state, message=run.get('conclusion') or run['status'], url=run['html_url'])
                     except ValueError as exc:
                         await self.db('update_job', job['id'], status='tracking_error', message=str(exc))
+            await self.advance_steps(now)
             await self.db('prune', now, self.config.get('history_days', 90))
             await self.publish()
 

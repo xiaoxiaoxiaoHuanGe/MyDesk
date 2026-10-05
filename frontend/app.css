@@ -100,3 +100,10 @@ button,input,select,textarea{font-family:inherit}
   .login-stage{padding:20px}.login-card{padding:30px}
 }
 @media(max-width:360px){.account-card .account-avatar{display:none}.setting-row{gap:10px}.appearance-card{gap:8px}.appearance-switch button{width:40px}}
+.plan-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.preset-options{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.preset-options [aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
+.plan-form .dialog-actions{flex-wrap:wrap}
+.plan-live,.plan-records{margin-top:18px}
+.plan-live p,.plan-records p{margin-top:8px;overflow-wrap:anywhere}
+@media(max-width:450px){.plan-fields{grid-template-columns:1fr}}

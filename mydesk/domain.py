@@ -223,7 +223,16 @@ class Desk:
             db.execute('DELETE FROM task_events WHERE timestamp < ? AND id NOT IN (SELECT e.id FROM task_events e WHERE e.id=(SELECT t.id FROM task_events t WHERE t.task_id=e.task_id ORDER BY timestamp DESC,id DESC LIMIT 1))', (cutoff,))
             db.execute("DELETE FROM reminders WHERE status IN ('completed','cancelled') AND completed_at < ?", (cutoff,))
             db.execute('DELETE FROM deliveries WHERE reminder_id NOT IN (SELECT id FROM reminders) OR revision != (SELECT revision FROM reminders WHERE id=reminder_id)')
-            db.execute("DELETE FROM jobs WHERE status NOT IN ('dispatching','queued','running','tracking_error') AND created_at < ?", (cutoff,))
+            # A live round retains its attempts even when it spans the retention window.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='step_runs'").fetchone():
+                rows=db.execute('SELECT id,data FROM step_runs').fetchall()
+                expired=[r['id'] for r in rows if (data:=json.loads(r['data'])).get('ended_at') and data['ended_at']<cutoff
+                         and not db.execute("SELECT 1 FROM step_attempts a JOIN jobs j ON j.id=a.job_id WHERE a.run_id=? AND j.status IN ('dispatching','queued','running','tracking_error')",(r['id'],)).fetchone()]
+                db.executemany('DELETE FROM step_attempts WHERE run_id=?',[(key,) for key in expired])
+                db.executemany('DELETE FROM step_runs WHERE id=?',[(key,) for key in expired])
+                db.execute("DELETE FROM jobs WHERE status NOT IN ('dispatching','queued','running','tracking_error') AND created_at < ? AND id NOT IN (SELECT job_id FROM step_attempts)",(cutoff,))
+            else:
+                db.execute("DELETE FROM jobs WHERE status NOT IN ('dispatching','queued','running','tracking_error') AND created_at < ?", (cutoff,))
             db.execute('PRAGMA incremental_vacuum')
 
     def snapshot(self, now, expected_tasks=None, stale_seconds=180):

@@ -21,11 +21,11 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun MultiServiceSettings(mail: Boolean,settings: JsonObject,busy: Boolean,save: (JsonObject,()->Unit)->Unit,onClose: ()->Unit,
-    feedback: String="",check: (String,String)->Unit={_,_->}) {
+    feedback: String="",check: (String,String)->Unit={_,_->},initialId: String?=null) {
     val collection=if(mail) "gmail_accounts" else "server_sources"
     val entries=settings.obj(collection)
-    var editing by remember {mutableStateOf<String?>(null)}
-    var draft by remember {mutableStateOf(buildJsonObject {})}
+    var editing by remember {mutableStateOf(initialId?.takeIf {entries[it]!=null})}
+    var draft by remember {mutableStateOf(initialId?.let {entries[it] as? JsonObject} ?: buildJsonObject {})}
     var removing by remember {mutableStateOf(false)}
     var query by remember {mutableStateOf("")}
     fun back() {editing=null;draft=buildJsonObject {}}

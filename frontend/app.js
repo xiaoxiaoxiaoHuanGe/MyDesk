@@ -2,7 +2,8 @@ import './mydesk-card.js';
 import {DeskClient} from './transport.js';
 import {resolveAppearance} from './ui.js';
 import {icon} from './icons.js';
-import {renderSettings} from './settings.js';
+import {renderSettings,openSettingsTarget} from './settings.js';
+import {openStepPlan} from './step-plan.js';
 
 const $=selector=>document.querySelector(selector);
 let csrf,client,stopWatching,sessionInfo,page='dashboard',toastTimer;
@@ -72,5 +73,19 @@ async function route() {
 }
 document.querySelectorAll('[data-icon]').forEach(node=>node.insertAdjacentHTML('afterbegin',icon(node.dataset.icon)));
 window.addEventListener('hashchange',route);
+document.addEventListener('mydesk-navigate',async event=>{
+  try {
+    const d=event.detail,cards=$('#desk').childrenCards||[],card=mode=>cards.find(c=>c.config.mode===mode);
+    if(d.type==='reminder')card('attention').showReminder(d.id);
+    else if(d.type==='task')card('automation').showTask(d.id);
+    else if(d.type==='server')card('server').showServer(d.id);
+    else if(d.type==='network'){card('network').showNodes(d.id);}
+    else if(d.type==='steps')openStepPlan(card('wxstep').controller,v=>card('wxstep').date(v,true));
+    else if(d.type==='settings'){
+      await renderSettings({request,toast,logout,setAppearance,getAppearance:()=>appearance,session:sessionInfo});
+      openSettingsTarget(d.section,d.id);
+    }
+  }catch(error){toast(error.message,true);}
+});
 setInterval(()=>updateHeader(),60000);
 try {await signedIn(await request('/api/session'));}catch {showLogin();}

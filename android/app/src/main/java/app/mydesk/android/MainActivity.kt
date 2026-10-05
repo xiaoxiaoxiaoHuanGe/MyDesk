@@ -121,6 +121,9 @@ class MainActivity: ComponentActivity() {
     var focusedReminder by rememberSaveable {mutableStateOf("")}
     var detailReminderId by rememberSaveable {mutableStateOf<String?>(null)}
     var businessDetail by remember {mutableStateOf<Pair<NotificationSection,JsonObject>?>(null)}
+    var attentionDestination by remember {mutableStateOf<JsonObject?>(null)}
+    var stepPanel by rememberSaveable {mutableStateOf(false)}
+    var stepRecords by rememberSaveable {mutableStateOf(false)}
     var logout by remember { mutableStateOf(false) }
     val snapshot=state.snapshot ?: buildJsonObject { }
     val timezone=snapshot.text("timezone","Asia/Shanghai")
@@ -179,7 +182,7 @@ class MainActivity: ComponentActivity() {
         })
     }) { padding ->
         DeskMainPages(pagerState,Modifier.fillMaxSize().padding(padding).imePadding(),
-            userScrollEnabled=businessDetail == null && detailReminder == null && !logout) {page->
+            userScrollEnabled=businessDetail == null && detailReminder == null && attentionDestination==null && !stepPanel && !logout) {page->
             LazyColumn(Modifier.fillMaxSize(),state=listStates[page],contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 item {
                     val daily=snapshot.obj("daily_quote")
@@ -221,8 +224,27 @@ class MainActivity: ComponentActivity() {
                         if(state.reminders.isEmpty()) item { DeskCard("还没有待办提醒") { Text("想到一件事，就给它设个时间。") } }
                     }
                     else -> {
-                        item { WorkbenchAttentionCard(snapshot.rows("attention"),state.snapshot != null) }
-                        item { StepsCard(snapshot,state.busy,command) }
+                        item { WorkbenchAttentionCard(snapshot.rows("attention"),state.snapshot != null) {entry->
+                            pageScope.launch {
+                                try {
+                                    graph.sync()
+                                    val fresh=graph.state.value.snapshot ?: snapshot
+                                    val current=fresh.rows("attention").firstOrNull {it.text("kind")==entry.text("kind") && it.text("id")==entry.text("id")}
+                                    if(current==null) focusMessage="该事项已处理，已更新列表"
+                                    else {
+                                        val d=current.obj("destination");val id=d.text("id")
+                                        when(d.text("type")) {
+                                            "reminder"->detailReminderId=id
+                                            "task"->fresh.rows("tasks").firstOrNull {it.text("task_id")==id}?.let {businessDetail=NotificationSection.TASKS to it}
+                                            "server"->fresh.obj("feeds").obj("servers").obj("data").rows("items").firstOrNull {it.text("id")==id}?.let {businessDetail=NotificationSection.SERVERS to it}
+                                            "steps"->{stepRecords=true;stepPanel=true}
+                                            else->{attentionDestination=d;if(d.text("type")=="settings") settingsModel.reload()}
+                                        }
+                                    }
+                                }catch(error: Exception){focusMessage=error.message ?: "连接失败，请重试"}
+                            }
+                        } }
+                        item { StepsCard(snapshot,state.busy,command) {records->stepRecords=records;stepPanel=true} }
                         item { MailCard(snapshot,timezone) }
                         item { WorkbenchTaskCard(snapshot.rows("tasks"),timezone,{businessDetail=NotificationSection.TASKS to it},{historyTask=null;history=true}) }
                         item { ServerCard(snapshot,timezone) }
@@ -233,9 +255,25 @@ class MainActivity: ComponentActivity() {
             }
         }
     }
+    if(stepPanel) StepPlanSheet(snapshot,state.busy,command,{stepPanel=false},stepRecords,graph::loadStepHistory,state.message)
+    attentionDestination?.let {destination->
+        val section=destination.text("section");val close={attentionDestination=null}
+        val config=settingsState.config
+        if(destination.text("type")=="network") AttentionNetworkSheet(snapshot,destination.text("id"),state.busy,{command("sync/all",buildJsonObject {})},close)
+        else if(config!=null) key(section,destination.text("id")) {
+            when(section) {
+                "mail","servers"->MultiServiceSettings(section=="mail",config,state.busy||settingsState.busy,settingsModel::save,close,settingsState.message,settingsModel::checkService,destination.text("id").takeIf {it.isNotBlank()})
+                "github"->GitHubTaskSettings(config,state.busy||settingsState.busy,settingsModel::save,close,settingsModel::checkGitHubTask,settingsState.message,destination.text("id").takeIf {it.isNotBlank()})
+                "network"->NetworkSettings(config,state.busy||settingsState.busy,settingsModel::save,close,settingsState.message)
+                else->AlertDialog(onDismissRequest=close,title={Text("手机通知")},text={Column {NotificationSettings(graph,state,notify,exact,settings)}},confirmButton={TextButton(close) {Text("关闭")}})
+            }
+        } else AlertDialog(onDismissRequest=close,title={Text("读取接入设置")},text={Text(if(settingsState.failed) settingsState.message else "正在读取…")},confirmButton={TextButton({settingsModel.reload()}) {Text("重试")}},dismissButton={TextButton(close) {Text("关闭")}})
+    }
     businessDetail?.let {(section,value) ->
-        if(section == NotificationSection.SERVERS) ServerDetail(value,timezone) {businessDetail=null}
-        else TaskDetail(value,timezone,onClose={businessDetail=null},history={businessDetail=null;historyTask=value.text("task_id","");history=true})
+        val current=if(section==NotificationSection.SERVERS) snapshot.obj("feeds").obj("servers").obj("data").rows("items").firstOrNull {it.text("id")==value.text("id")} else snapshot.rows("tasks").firstOrNull {it.text("task_id")==value.text("task_id")}
+        if(current!=null && section == NotificationSection.SERVERS) ServerDetail(current,timezone) {businessDetail=null}
+        else if(current!=null) TaskDetail(current,timezone,onClose={businessDetail=null},history={businessDetail=null;historyTask=current.text("task_id","");history=true})
+        else LaunchedEffect(value) {businessDetail=null;focusMessage="该事项已移除，已更新列表"}
     }
     detailReminder?.let {reminder->
         ReminderDetailSheet(reminder,timezone,state.busy,onDismiss={detailReminderId=null}) {current,action,minutes->

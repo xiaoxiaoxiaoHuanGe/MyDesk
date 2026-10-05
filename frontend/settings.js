@@ -22,6 +22,12 @@ export async function renderSettings(context){
   target.querySelectorAll('[data-setting]').forEach(button=>button.onclick=()=>handle(button.dataset.setting,button));
 }
 async function refresh(){await renderSettings(ctx);}
+export function openSettingsTarget(section,id='') {
+  if(section==='network')network();
+  else if(section==='devices')deviceManager();
+  else if(id && (section==='github' && id==='wxstep' ? settings.github : settings[collections[section]]?.[id]))editor(section,id);
+  else if(collections[section])manager(section);
+}
 async function save(body,dialog){await ctx.request('/api/settings',{method:'PUT',body});dialog.close();await refresh();ctx.toast('设置已保存，服务将在后台同步。');}
 function bindForm(dialog,callback){const form=dialog.querySelector('form');form.onsubmit=async event=>{event.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;dialog.feedback('');try{await callback(Object.fromEntries(new FormData(form)));}catch(error){dialog.feedback(error.message,true);}finally{if(button.isConnected)button.disabled=false;}};return form;}
 async function handle(action,button){
