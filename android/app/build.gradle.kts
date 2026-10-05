@@ -31,8 +31,8 @@ android {
         applicationId = "app.mydesk.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.1"
+        versionCode = 7
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }

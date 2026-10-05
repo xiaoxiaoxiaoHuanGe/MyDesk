@@ -119,6 +119,8 @@ class Runtime:
         elif state.get('wxstep') and state['wxstep']['status'] in ('failed','tracking_error'):
             state['attention'].append(dict(kind='steps',id=state['wxstep']['id'],title='微信步数提交',message=state['wxstep']['message']))
         state['attention']=actionable_attention(state)
+        acknowledged=await self.steps_db('acknowledged')
+        state['attention']=[item for item in state['attention'] if item.get('ack_token') not in acknowledged]
         return state
 
     async def recover(self):
@@ -140,6 +142,14 @@ class Runtime:
             return await self.snapshot(now)
         if action == 'history':
             return await self.db('task_history', payload.get('limit', 100), payload.get('before'),payload.get('task_id'))
+        if action=='attention/acknowledge':
+            token=payload.get('token')
+            state=await self.snapshot(now)
+            if not token or not any(item.get('ack_token')==token for item in state['attention']):
+                raise ValueError('该事项已确认或已变化，请刷新列表')
+            await self.steps_db('acknowledge',token,now)
+            await self.publish()
+            return {'acknowledged':True}
         if action.startswith('wxstep/plan/') or action.startswith('wxstep/preset/'):
             kind=action.rsplit('/',1)[1]
             if action.startswith('wxstep/preset/'):

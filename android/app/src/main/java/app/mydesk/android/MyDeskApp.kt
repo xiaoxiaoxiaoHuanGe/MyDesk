@@ -134,7 +134,16 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     }
     private suspend fun <T> authorized(operation: suspend ()->T): T = try {operation()}
         catch(error: ApiError) {if(error.status in setOf(401,403)) invalidateSession(error);throw error}
-    suspend fun command(action: String,payload: JsonObject) { authorized {repo.command(action,payload)} }
+    suspend fun command(action: String,payload: JsonObject) {
+        authorized {repo.command(action,payload)}
+        val feedback=when(action) {
+            "attention/acknowledge"->"已确认，记录仍保留"
+            "wxstep/plan/save"->"配置已保存"
+            "wxstep/plan/start"->"自动任务已开始"
+            else->null
+        }
+        if(feedback!=null) mutable.update {it.copy(message=feedback)}
+    }
     suspend fun checkGitHubTask(payload: JsonObject): JsonObject=authorized {repo.command("github_task/check",payload).jsonObject}
     suspend fun checkService(payload: JsonObject): JsonObject=authorized {repo.command("service/check",payload).jsonObject}
     suspend fun settings(): JsonObject=authorized {ready.await();client!!.request("/api/settings").jsonObject}

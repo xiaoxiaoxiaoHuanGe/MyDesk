@@ -50,6 +50,7 @@ class StepPlans:
                     run_id TEXT, job_id TEXT UNIQUE, source TEXT, applied INTEGER NOT NULL DEFAULT 0,
                     finished_at TEXT);
                 CREATE INDEX IF NOT EXISTS step_attempt_run ON step_attempts(run_id,seq);
+                CREATE TABLE IF NOT EXISTS step_acknowledgements(token TEXT PRIMARY KEY, created_at TEXT NOT NULL);
             ''')
             db.execute('INSERT OR IGNORE INTO step_settings VALUES (1,?)',
                        (json.dumps(dict(settings={'daily':False,'start_time':'08:00'},presets=[],revision=uuid4().hex)),))
@@ -96,7 +97,7 @@ class StepPlans:
                          (stamp(day),stamp(now))).fetchone()
         return row[0] if row[0] is not None else -1
 
-    def configure(self, payload, now, config):
+    def _configuration(self, payload, now, config):
         params=parameters(payload)
         daily=payload.get('daily',False)
         clock=payload.get('start_time','08:00')
@@ -107,14 +108,38 @@ class StepPlans:
             hour,minute=map(int,clock.split(':'))
             if hour*60+minute+count*params['interval_minutes'] >= 1440:
                 raise ValueError('每日计划预计跨日，请提前开始或调整参数')
+        tomorrow=instant(now).astimezone(ZoneInfo(config.get('timezone','Asia/Shanghai'))).date()+timedelta(days=1)
+        return dict(**params,daily=daily,start_time=clock,eligible_day=tomorrow.isoformat(),
+                    name=text_field(payload.get('name') or '自动任务','配置名称',40))
+
+    def _preset_save(self, value, payload, params):
+        rows=value['presets'];key=payload.get('id')
+        existing=next((p for p in rows if p['id']==key),None)
+        if key and not existing:raise ValueError('该配置已删除，请刷新')
+        name=text_field(payload.get('name'),'配置名称',40)
+        if any(p['name']==name and p['id']!=key for p in rows):raise ValueError('配置名称已存在')
+        if not existing and len(rows)>=50:raise ValueError('最多保存 50 个配置')
+        daily=payload.get('daily',(existing or {}).get('daily',False))
+        clock=payload.get('start_time',(existing or {}).get('start_time','08:00'))
+        if type(daily) is not bool or not isinstance(clock,str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d',clock):
+            raise ValueError('每日开始时间或重复开关无效')
+        item=dict(id=key or uuid4().hex,name=name,**params,daily=daily,start_time=clock)
+        if existing:rows[rows.index(existing)]=item
+        else:rows.append(item)
+        return item['id']
+
+    def configure(self, payload, now, config):
+        settings=self._configuration(payload,now,config)
         with self.desk.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             value=self._settings(db)
             if payload.get('revision') and payload['revision'] != value['revision']:
                 raise ValueError('计划或预设已在其他端修改，请刷新后保存')
-            tomorrow=instant(now).astimezone(ZoneInfo(config.get('timezone','Asia/Shanghai'))).date()+timedelta(days=1)
-            value['settings']=dict(**params,daily=daily,start_time=clock,eligible_day=tomorrow.isoformat(),
-                                   name=text_field(payload.get('name') or '渐进任务','计划名称',40))
+            if payload.get('save_preset') is True:
+                key=self._preset_save(value,{**payload,'id':payload.get('preset_id')},parameters(payload))
+                settings['preset_id']=key
+            elif payload.get('preset_id'):settings['preset_id']=payload['preset_id']
+            value['settings']=settings
             self._save_settings(db,value)
         return self.snapshot()
 
@@ -126,14 +151,7 @@ class StepPlans:
                 raise ValueError('预设已在其他端修改，请刷新')
             rows=value['presets']; key=payload.get('id')
             if action=='save':
-                params=parameters(payload); name=text_field(payload.get('name'),'预设名称',40)
-                existing=next((p for p in rows if p['id']==key),None)
-                if key and not existing: raise ValueError('该预设已删除，请刷新')
-                if any(p['name']==name and p['id']!=key for p in rows):raise ValueError('预设名称已存在')
-                if not existing and len(rows)>=50:raise ValueError('最多保存 50 个预设')
-                item=dict(id=key or uuid4().hex,name=name,**params)
-                if existing: rows[rows.index(existing)]=item
-                else: rows.append(item)
+                self._preset_save(value,payload,parameters(payload))
             elif action=='delete':
                 if not any(p['id']==key for p in rows):raise ValueError('该预设已删除')
                 value['presets']=[p for p in rows if p['id']!=key]
@@ -147,7 +165,24 @@ class StepPlans:
 
     def start(self, payload, now, config):
         with self.desk.connect() as db:
-            db.execute('BEGIN IMMEDIATE'); self._new_run(db,payload,now,config)
+            db.execute('BEGIN IMMEDIATE')
+            settings=self._configuration(payload,now,config) if 'daily' in payload else None
+            value=self._settings(db)
+            if payload.get('revision') and payload['revision']!=value['revision']:
+                raise ValueError('配置已在其他端修改，请刷新')
+            self._new_run(db,payload,now,config)
+            if settings:
+                if payload.get('preset_id'):settings['preset_id']=payload['preset_id']
+                value['settings']=settings;self._save_settings(db,value)
+
+    def acknowledge(self, token, now):
+        if not isinstance(token,str) or not re.fullmatch('[a-f0-9]{64}',token):raise ValueError('事项标识无效')
+        with self.desk.connect() as db:
+            db.execute('INSERT OR IGNORE INTO step_acknowledgements VALUES (?,?)',(token,stamp(now)))
+
+    def acknowledged(self):
+        with self.desk.connect() as db:
+            return {row[0] for row in db.execute('SELECT token FROM step_acknowledgements')}
 
     def control(self, action, payload, now, config):
         with self.desk.connect() as db:
@@ -262,6 +297,6 @@ class StepPlans:
                 row=db.execute('SELECT * FROM jobs WHERE id=?',(run['current_job_id'],)).fetchone()
                 run['current_job']=dict(row) if row else None
             value['run']=run
-            value['recent_runs']=[dict(id=row['id'],**{k:json.loads(row['data'])[k] for k in ('name','status','started_at','success_count')})
+            value['recent_runs']=[dict(id=row['id'],**{k:json.loads(row['data']).get(k) for k in ('name','status','started_at','success_count','params','last_success','ended_at','message')})
                                   for row in db.execute('SELECT id,data FROM step_runs ORDER BY rowid DESC LIMIT 20')]
             return value

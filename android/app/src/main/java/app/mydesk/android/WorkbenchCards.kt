@@ -32,7 +32,8 @@ import androidx.compose.ui.unit.dp
     }
 }
 
-@Composable internal fun WorkbenchAttentionCard(attention: List<kotlinx.serialization.json.JsonObject>,hasSnapshot: Boolean,onOpen: (kotlinx.serialization.json.JsonObject)->Unit={}) {
+@Composable internal fun WorkbenchAttentionCard(attention: List<kotlinx.serialization.json.JsonObject>,hasSnapshot: Boolean,
+    busy: Boolean=false,onAcknowledge: (kotlinx.serialization.json.JsonObject)->Unit={},onOpen: (kotlinx.serialization.json.JsonObject)->Unit={}) {
     Card(Modifier.fillMaxWidth().height(280.dp).testTag("attention-card"),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),shape=MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -44,8 +45,12 @@ import androidx.compose.ui.unit.dp
                 items(attention) {entry ->
                     Surface(onClick={onOpen(entry)},shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                            Text(entry.text("title"),style=MaterialTheme.typography.titleSmall)
-                            Text(entry.text("message"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if(entry.text("kind")=="steps") entry.text("title").replaceFirst("微信步数","步数") else entry.text("title"),style=MaterialTheme.typography.titleSmall)
+                            Text(if(entry.text("kind")=="steps" && entry.text("message")=="failure") "提交失败" else entry.text("message"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            if(entry.text("kind","")=="steps" && entry.text("ack_token","").isNotBlank()) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
+                                TextButton({onOpen(entry)},enabled=!busy) {Text("查看原因")}
+                                FilledTonalButton({onAcknowledge(entry)},enabled=!busy) {Text("已知晓")}
+                            }
                         }
                     }
                 }

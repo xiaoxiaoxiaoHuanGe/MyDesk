@@ -39,9 +39,9 @@ class MainPageInteractionTest {
     private fun showPages() {
         compose.setContent {
             MaterialTheme(colorScheme=deskColors(false),shapes=deskShapes,typography=deskTypography) {
-                val pager=rememberPagerState(pageCount={3})
+                val pager=rememberPagerState(pageCount={4})
                 val scope=rememberCoroutineScope()
-                val lists=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
+                val lists=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
                 val finishedPage=pager.settledPage
                 val firstIndex=lists[0].firstVisibleItemIndex
                 val firstOffset=lists[0].firstVisibleItemScrollOffset
@@ -65,7 +65,7 @@ class MainPageInteractionTest {
     }
     private fun assertPage(page: Int) {
         compose.runOnIdle {assertEquals(page,settled)}
-        compose.onNodeWithText(listOf("工作台","提醒","设置")[page]).assertIsSelected()
+        compose.onNodeWithText(listOf("工作台","提醒","步数","设置")[page]).assertIsSelected()
     }
 
     @Test fun swipesAndBottomNavigationStayInSyncWithoutWrapping() {
@@ -73,10 +73,12 @@ class MainPageInteractionTest {
         swipe(false);assertPage(0)
         swipe(true);assertPage(1)
         swipe(true);assertPage(2)
-        swipe(true);assertPage(2)
+        swipe(true);assertPage(3)
+        swipe(true);assertPage(3)
+        swipe(false);assertPage(2)
         swipe(false);assertPage(1)
         swipe(false);assertPage(0)
-        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(2)
+        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(3)
         compose.onNodeWithText("工作台").performClick();compose.waitForIdle();assertPage(0)
     }
 
@@ -108,11 +110,11 @@ class MainPageInteractionTest {
         showPages()
         compose.runOnIdle {enabled.value=false}
         swipe(true);assertPage(0)
-        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(2)
+        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(3)
         compose.runOnIdle {enabled.value=true}
         compose.onNodeWithTag("pages").performTouchInput {
             swipe(center,center.copy(x=center.x+35f),durationMillis=600)
         }
-        compose.waitForIdle();assertPage(2)
+        compose.waitForIdle();assertPage(3)
     }
 }

@@ -233,6 +233,65 @@ class StepPlanTests(unittest.IsolatedAsyncioTestCase):
         await self.rt.tick(tomorrow+timedelta(minutes=5))
         self.assertEqual(self.github.sent,[1000])
 
+    async def test_save_configuration_updates_preset_and_daily_settings_together(self):
+        saved=await self.rt.command('wxstep/plan/save',dict(**PARAMS,name='散步',daily=True,start_time='08:00',save_preset=True),NOW)
+        self.assertEqual(len(saved['presets']),1)
+        preset=saved['presets'][0]
+        self.assertEqual(saved['settings']['preset_id'],preset['id'])
+        self.assertTrue(preset['daily'])
+        self.assertEqual(preset['start_time'],'08:00')
+        updated=await self.rt.command('wxstep/plan/save',dict(**PARAMS,name='散步',daily=False,start_time='09:00',save_preset=True,preset_id=preset['id'],revision=saved['revision']),NOW)
+        self.assertEqual(len(updated['presets']),1)
+        self.assertFalse(updated['presets'][0]['daily'])
+        self.assertEqual(updated['settings']['start_time'],'09:00')
+        self.assertEqual(self.github.sent,[])
+
+    async def test_duplicate_configuration_does_not_partially_change_daily_schedule(self):
+        saved=await self.rt.command('wxstep/preset/save',dict(**PARAMS,name='散步'),NOW)
+        before=self.rt.step_plans.snapshot()
+        with self.assertRaises(ValueError):
+            await self.rt.command('wxstep/plan/save',dict(**PARAMS,name='散步',daily=True,start_time='08:00',save_preset=True,revision=saved['revision']),NOW)
+        self.assertEqual(self.rt.step_plans.snapshot()['settings'],before['settings'])
+
+    async def test_immediate_start_saves_daily_arrangement_without_overwriting_preset(self):
+        saved=await self.rt.command('wxstep/preset/save',dict(**PARAMS,name='散步'),NOW)
+        await self.start(dict(**PARAMS,name='临时运行',daily=True,start_time='09:00',preset_id=saved['presets'][0]['id']))
+        plan=self.rt.step_plans.snapshot()
+        self.assertTrue(plan['settings']['daily'])
+        self.assertEqual(plan['settings']['start_time'],'09:00')
+        self.assertEqual(plan['presets'],saved['presets'])
+        self.assertEqual(self.github.sent,[1000])
+
+    async def test_acknowledgement_survives_restart_and_new_failure_reappears(self):
+        await self.rt.command('wxstep/submit',{'steps':1000},NOW)
+        self.github.results[1]='failure'
+        await self.rt.tick(NOW)
+        item=(await self.rt.snapshot(NOW))['attention'][0]
+        self.assertIn('ack_token',item)
+        await self.rt.command('attention/acknowledge',{'token':item['ack_token']},NOW)
+        self.rt=self.runtime()
+        self.assertEqual((await self.rt.snapshot(NOW))['attention'],[])
+        self.assertEqual((await self.rt.snapshot(NOW))['wxstep']['status'],'failed')
+        await self.rt.command('wxstep/submit',{'steps':1030},NOW+timedelta(minutes=1))
+        self.github.results[2]='failure'
+        await self.rt.tick(NOW+timedelta(minutes=1))
+        new=(await self.rt.snapshot(NOW))['attention'][0]
+        self.assertNotEqual(new['ack_token'],item['ack_token'])
+
+    async def test_acknowledging_pause_never_resumes_or_stops_the_round(self):
+        await self.start()
+        self.github.results[1]='failure'
+        await self.rt.tick(NOW)
+        state=await self.rt.snapshot(NOW)
+        self.assertIn('ack_token',state['attention'][0])
+        await self.rt.command('attention/acknowledge',{'token':state['attention'][0]['ack_token']},NOW)
+        self.assertEqual(self.rt.step_plans.snapshot()['run']['status'],'paused')
+        self.assertEqual(self.github.sent,[1000])
+        await self.rt.command('wxstep/plan/resume',{'run_id':state['wxstep_plan']['run']['id']},NOW)
+        self.github.results[2]='failure'
+        await self.rt.tick(NOW)
+        self.assertTrue((await self.rt.snapshot(NOW))['attention'])
+
     async def test_disable_stops_current_round_and_future_daily_rounds(self):
         await self.rt.command('wxstep/plan/save',dict(**PARAMS,daily=True,start_time='08:00'),NOW)
         await self.start()

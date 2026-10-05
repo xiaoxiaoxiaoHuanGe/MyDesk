@@ -48,7 +48,7 @@ internal fun githubPreset(key: String): JsonObject=buildJsonObject {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 if(mode.isNotEmpty()) IconButton({mode="";draft=buildJsonObject {}},enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.AutoMirrored.Filled.ArrowBack,"返回 GitHub 任务")}
-                Text(when(mode) {"add"->"添加任务";"edit"->if(key=="wxstep") "微信步数" else "任务设置";else->"GitHub 任务"},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
+                Text(when(mode) {"add"->"添加任务";"edit"->if(key=="wxstep") "步数" else "任务设置";else->"GitHub 任务"},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                 IconButton(onClose,enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.Default.Close,"关闭 GitHub 任务")}
             }
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -65,7 +65,7 @@ internal fun githubPreset(key: String): JsonObject=buildJsonObject {
                     check={checkTask(key)},remove={remove=true})
                 else -> {
                     Text("微信步数与自动任务在这里单独管理。",style=MaterialTheme.typography.bodyMedium)
-                    GitHubTaskRow("微信步数",settings.obj("github"),busy,manual=true) {edit("wxstep",settings.obj("github"))}
+                    GitHubTaskRow("步数",settings.obj("github"),busy,manual=true) {edit("wxstep",settings.obj("github"))}
                     tasks.entries.forEach {(id,item)->GitHubTaskRow(item.jsonObject.text("name"),item.jsonObject,busy) {edit(id,item.jsonObject)}}
                     DeskButton({mode="add"},enabled=!busy,modifier=Modifier.fillMaxWidth()) {Text("添加任务")}
                 }
@@ -102,7 +102,7 @@ internal fun githubPreset(key: String): JsonObject=buildJsonObject {
 @Composable private fun GitHubTaskEditor(id: String,current: JsonObject,busy: Boolean,onSave: (JsonObject)->Unit,
     exists: Boolean,check: ()->Unit,remove: ()->Unit) {
     val steps=id=="wxstep"
-    val values=remember(id,current) {mutableStateMapOf("name" to current.text("name",if(steps) "微信步数" else ""),
+    val values=remember(id,current) {mutableStateMapOf("name" to current.text("name",if(steps) "步数" else ""),
         "owner" to current.text("owner",if(steps) "xiaoxiaoxiaoHuanGe" else ""),"repo" to current.text("repo",if(steps) "WxStepCustom" else ""),
         "workflow" to current.text("workflow",if(steps) "reachability.yml" else ""),"ref" to current.text("ref","main"),
         "step" to current.text("step","MyDesk result"),"max_age_hours" to current.text("max_age_hours",SettingsInput.DEFAULT_TASK_TIMEOUT_HOURS.toString()),"token" to "")}

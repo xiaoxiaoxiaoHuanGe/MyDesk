@@ -30,5 +30,5 @@ def build(output):
 
 
 if __name__=='__main__':
-    output=build(ROOT/'dist/MyDesk-1.1.0-source.zip')
+    output=build(ROOT/'dist/MyDesk-1.2.0-source.zip')
     print(f'Release: {output}')

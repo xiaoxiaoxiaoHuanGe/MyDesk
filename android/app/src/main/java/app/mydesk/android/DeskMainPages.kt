@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun DeskMainTabs(selectedPage: Int,onSelect: (Int)->Unit,modifier: Modifier=Modifier) {
     NavigationBar(modifier=modifier,containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp) {
-        listOf("工作台","提醒","设置").forEachIndexed {index,title->
+        listOf("工作台","提醒","步数","设置").forEachIndexed {index,title->
             NavigationBarItem(selected=selectedPage==index,onClick={onSelect(index)},label={Text(title)},
-                icon={Icon(listOf(Icons.Default.Home,Icons.AutoMirrored.Filled.List,Icons.Default.Settings)[index],contentDescription=null)})
+                icon={Icon(listOf(Icons.Default.Home,Icons.AutoMirrored.Filled.List,StepsIcon,Icons.Default.Settings)[index],contentDescription=null)})
         }
     }
 }
