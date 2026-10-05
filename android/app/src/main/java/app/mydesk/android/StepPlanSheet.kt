@@ -17,13 +17,14 @@ import kotlinx.serialization.json.*
 import java.time.Instant
 
 internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","running" to "提交进行中","paused" to "异常暂停","completed" to "已完成","stopped" to "已终止")[value] ?: "尚未开始"
+internal fun stepPlanName(value: String)=if(value in setOf("渐进任务","渐进步数任务")) "自动任务" else value
 
 @Composable internal fun StepPlanStatus(run: JsonObject,zone: String,busy: Boolean,control: (String)->Unit,records: ()->Unit) {
     val phase=run.text("status")
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(run.text("next_at")) {while(true) {now=System.currentTimeMillis();delay(1000)}}
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Text("${run.text("name")} · ${stepPlanLabel(phase)}",style=MaterialTheme.typography.titleSmall)
+        Text("${stepPlanName(run.text("name"))} · ${stepPlanLabel(phase)}",style=MaterialTheme.typography.titleSmall)
         Text("最近成功提交 ${run.text("last_success","—").let {if(it=="null") "—" else it}} 步 · 成功 ${run.text("success_count","0")} 次",style=MaterialTheme.typography.bodySmall)
         Text("终止步数 ${run.obj("params").text("target")} 步",style=MaterialTheme.typography.bodySmall)
         val current=run.obj("current_job")
@@ -37,7 +38,7 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
             TextButton(records) {Text("查看本轮记录")}
             // Stopping must remain reachable while another command is waiting on GitHub.
             if(phase in setOf("waiting","running","paused")) DeskOutlinedButton({control("stop")}) {Text("终止本轮")}
-            if(phase=="paused") DeskOutlinedButton({control("resume")},enabled=!busy) {Text("检查后重试 / 恢复")}
+            if(phase=="paused") DeskOutlinedButton({control("resume")},enabled=!busy) {Text("恢复任务")}
         }
     }
 }
@@ -48,7 +49,7 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
     var increment by rememberSaveable {mutableStateOf(settings.text("increment",""))}
     var interval by rememberSaveable {mutableStateOf(settings.text("interval_minutes",""))}
     var target by rememberSaveable {mutableStateOf(settings.text("target",""))}
-    var name by rememberSaveable {mutableStateOf(settings.text("name",""))}
+    var name by rememberSaveable {mutableStateOf(stepPlanName(settings.text("name","")))}
     var selected by rememberSaveable {mutableStateOf("")}
     var daily by rememberSaveable {mutableStateOf(settings.text("daily")=="true")}
     var clock by rememberSaveable {mutableStateOf(settings.text("start_time","08:00"))}
@@ -69,7 +70,8 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
             if(action=="wxstep/preset/save") require(name.isNotBlank()) {"请填写预设名称"}
             val payload=buildJsonObject {
                 p.json().forEach {(k,v)->put(k,v)}
-                put("name",name.ifBlank {"渐进任务"});put("daily",daily);put("start_time",clock)
+                put("name",name.ifBlank {"自动任务"});put("daily",daily)
+                put("start_time",if(daily) clock else clock.takeIf {it.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d"))} ?: settings.text("start_time","08:00"))
                 if(action.endsWith("/save")) put("revision",draftRevision)
                 if(selected.isNotEmpty()) {put("preset_id",selected);if(action=="wxstep/preset/save"&&!newPreset) put("id",selected)}
             }
@@ -79,7 +81,7 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
     }
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text("快捷预设",style=MaterialTheme.typography.titleSmall)
-        if(presets.isEmpty()) Text("填写参数和名称，保存自己的散步、跑步或逛街预设。",style=MaterialTheme.typography.bodySmall)
+        if(presets.isEmpty()) Text("填好参数后，可保存为快捷预设。",style=MaterialTheme.typography.bodySmall)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             presets.forEach {preset->FilterChip(selected==preset.text("id"),{
                 selected=preset.text("id");name=preset.text("name");start=preset.text("start");increment=preset.text("increment")
@@ -93,8 +95,8 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
                 keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth().testTag("plan-$tag"))
         }
         parsed.getOrNull()?.let {Text("预计提交 ${it.count} 次 · ${it.duration} 分钟 · 最后提交 ${it.final} 步",style=MaterialTheme.typography.bodySmall)}
-        Text("等于终止步数时继续；首次超过的那一次也会实际提交。",style=MaterialTheme.typography.bodySmall)
-        DeskTextField(name,{name=it},label={Text("预设名称，例如散步")},enabled=!busy,singleLine=true,modifier=Modifier.fillMaxWidth())
+        Text("超过终止步数后结束。",style=MaterialTheme.typography.bodySmall)
+        DeskTextField(name,{name=it},label={Text("预设名称")},placeholder={Text("例如：散步、跑步、逛街")},enabled=!busy,singleLine=true,modifier=Modifier.fillMaxWidth())
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             TextButton({send("wxstep/preset/save")},enabled=!busy) {Text(if(selected.isEmpty()) "保存为预设" else "更新此预设")}
             if(selected.isNotEmpty()) {
@@ -107,14 +109,16 @@ internal fun stepPlanLabel(value: String)=mapOf("waiting" to "等待下一次","
             }
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {Text("每日重复");Switch(daily,{daily=it},enabled=!busy)}
-        DeskTextField(clock,{clock=it},label={Text("每日开始时间（HH:mm）")},enabled=!busy,singleLine=true,modifier=Modifier.fillMaxWidth())
-        Text("保存不提交；每日设置次日生效。运行中轮次保留原参数。时间使用工作台时区。",style=MaterialTheme.typography.bodySmall)
+        if(daily) {
+            DeskTextField(clock,{clock=it},label={Text("每日开始时间")},placeholder={Text("08:00")},enabled=!busy,singleLine=true,modifier=Modifier.fillMaxWidth())
+            Text("每日计划从明天开始，按工作台时区执行。",style=MaterialTheme.typography.bodySmall)
+        }
         if(error.isNotEmpty()) Text(error,color=MaterialTheme.colorScheme.error)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             DeskOutlinedButton({send("wxstep/plan/save")},enabled=!busy && parsed.isSuccess) {Text("保存设置")}
             DeskButton({send("wxstep/plan/start")},enabled=!busy && configured && parsed.isSuccess) {Text("立即开始")}
         }
-        Text("关闭 App 不影响运行；后端停止期间无法执行。",style=MaterialTheme.typography.bodySmall)
+        Text("开始后可关闭 App，也可随时终止。",style=MaterialTheme.typography.bodySmall)
     }
     if(removing) AlertDialog(onDismissRequest={removing=false},title={Text("删除预设？")},text={Text("不影响已经开始的轮次。")},
         confirmButton={TextButton({removing=false;command("wxstep/preset/delete",buildJsonObject {put("id",selected);put("revision",plan.text("revision"))});selected=""}) {Text("删除")}},dismissButton={TextButton({removing=false}) {Text("取消")}})
@@ -143,7 +147,7 @@ private data class PlanField(val tag: String,val label: String,val value: String
     }
     DeskModalSheet(onDismissRequest=onClose,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {Text(if(recordsOnly) "步数运行记录" else "渐进步数任务",style=MaterialTheme.typography.titleMedium);TextButton(onClose) {Text("关闭")}}
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {Text(if(recordsOnly) "步数运行记录" else "自动任务",style=MaterialTheme.typography.titleMedium);TextButton(onClose) {Text("关闭")}}
             if(errorText.isNotBlank()) Text(errorText,color=MaterialTheme.colorScheme.error)
             val job=snapshot.obj("wxstep")
             if(job.text("status") in setOf("failed","tracking_error")) {
@@ -172,8 +176,8 @@ private data class PlanField(val tag: String,val label: String,val value: String
             if(history==null && rows.size>=20) TextButton({load(run.text("id"))},enabled=!historyBusy) {Text("加载更多记录")}
             if(hasMore) TextButton({load(historyId,true)},enabled=!historyBusy) {Text("加载更早记录")}
             if(history!=null) TextButton({history=null;historyId="";hasMore=false}) {Text("返回当前轮次")}
-            plan.rows("recent_runs").filter {it.text("id")!=run.text("id")}.forEach {old->TextButton({load(old.text("id"))},enabled=!historyBusy) {Text("${old.text("name")} · ${date(old.text("started_at"),zone)} · ${stepPlanLabel(old.text("status"))}")}}
-            Text("记录为提交和工作流结果，实际微信运动步数请在微信中核对。",style=MaterialTheme.typography.bodySmall)
+            plan.rows("recent_runs").filter {it.text("id")!=run.text("id")}.forEach {old->TextButton({load(old.text("id"))},enabled=!historyBusy) {Text("${stepPlanName(old.text("name"))} · ${date(old.text("started_at"),zone)} · ${stepPlanLabel(old.text("status"))}")}}
+            if(rows.isNotEmpty()) Text("实际步数请在微信运动中查看。",style=MaterialTheme.typography.bodySmall)
         }
     }
     if(releaseTracking) AlertDialog(onDismissRequest={releaseTracking=false},title={Text("结束本地跟踪？")},

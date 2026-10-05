@@ -35,7 +35,7 @@ MyDesk 是一个可自行部署的个人工作台，由 **原生 Android APP + P
 | ✉️ 最近邮件 | 多个 Gmail 邮箱，合并显示按时间排序的最近 3 封邮件，支持按邮箱筛选 |
 | 🖥️ 服务器状态 | 多台 1Panel v2 / Beszel 服务器，查看 CPU、内存、磁盘、负载等指标 |
 | 🌐 网络连通性 | 管理和搜索检测节点，查看连通状态、延迟及错误原因 |
-| 👟 微信步数 | 对接自行配置的 GitHub Actions 工作流，手动提交、渐进任务、每日计划与自定义快捷预设，实时跟踪并随时终止 |
+| 👟 微信步数 | 对接自行配置的 GitHub Actions 工作流，手动提交、自动任务、每日计划与自定义快捷预设，实时跟踪并随时终止 |
 | 💬 每日一言 | 后端每日获取并缓存一言，失败时保留旧内容或使用默认语句 |
 | 🔐 配置备份 | 密码加密导出，导入预览，合并或替换配置，并保留恢复前配置 |
 
@@ -69,7 +69,7 @@ sudo cat data/LOCAL_ACCESS.md
 
 ### 2. 安装 Android APP
 
-从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.1.0-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
+从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.1.1-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
 
 系统要求 **Android 8.0 或更高版本**。正式版验证系统信任的 HTTPS 证书；首次创建提醒前，按 APP 引导授予通知和准确提醒权限。
 

@@ -4,7 +4,18 @@ import android.content.Context
 import android.os.Build
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+
+internal suspend fun persistAndScheduleReminders(update: suspend ()->Unit,schedule: suspend ()->Unit) = withContext(NonCancellable) {
+    // Finish the local commit and its system alarm together when onStop cancels foreground sync.
+    // This runs under the repository's session lock. Network calls remain cancellable outside it.
+    update()
+    ReminderDiagnostics.event("cache_committed")
+    schedule()
+    ReminderDiagnostics.event("cache_scheduled")
+}
 
 class DeskRepository(val context: Context,val store: NativeStore,val api: ()->MyDeskApi?,val deviceId: ()->String,val scheduler: ReminderScheduler,val deviceName: ()->String={Build.MODEL.take(80).ifBlank {"Android 手机"}}) {
     private val syncLock=Mutex()
@@ -45,24 +56,23 @@ class DeskRepository(val context: Context,val store: NativeStore,val api: ()->My
                     put("id",operation.reminderId); put("revision",operation.revision); put("action",operation.action)
                     put("minutes",operation.minutes); put("occurred_at",operation.occurredAt)
                 })
-                store.receipt(operation.operationId,deskJson.decodeFromJsonElement<Reminder>(result))
+                persistAndScheduleReminders({store.receipt(operation.operationId,deskJson.decodeFromJsonElement<Reminder>(result))},{scheduler.apply(store.visible())})
             } catch (error: ApiError) {
                 if (error.status == 409 || error.status == 400) {
-                    store.conflict(operation.reminderId)
+                    persistAndScheduleReminders({store.conflict(operation.reminderId)},{scheduler.apply(store.visible())})
                     conflictMessage="提醒已在其他端更新，未应用旧操作。请检查当前提醒。"
                 } else throw error
             }
         }
         val snapshot=client.request("/api/command","POST",buildJsonObject { put("action","snapshot") })
-        store.accept(snapshot.toString()); scheduler.apply(store.visible())
+        persistAndScheduleReminders({store.accept(snapshot.toString())},{scheduler.apply(store.visible())})
         true
     }
     suspend fun act(id: String,revision: String,action: String,minutes: Int=10)=syncLock.withLock {
         check(sessionOpen) {"账号已退出，请重新登录"}
-        store.enqueue(id,revision,action,minutes)
-        scheduler.apply(store.visible())
+        persistAndScheduleReminders({store.enqueue(id,revision,action,minutes)},{scheduler.apply(store.visible())})
     }
-    suspend fun snapshot(value: String)=syncLock.withLock {if(sessionOpen) {store.accept(value);scheduler.apply(store.visible())}}
+    suspend fun snapshot(value: String)=syncLock.withLock {if(sessionOpen) persistAndScheduleReminders({store.accept(value)},{scheduler.apply(store.visible())})}
     suspend fun command(action: String,payload: JsonObject=buildJsonObject { }): JsonElement {
         val client=api() ?: error("请先登录")
         val result=client.request("/api/command","POST",buildJsonObject { put("action",action); put("payload",payload) })

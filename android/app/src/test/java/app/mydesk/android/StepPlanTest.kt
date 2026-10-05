@@ -2,6 +2,10 @@ package app.mydesk.android
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -44,6 +48,21 @@ class StepPlanTest {
         compose.onNodeWithTag("plan-interval").assertTextContains("3")
         compose.onNodeWithTag("plan-target").assertTextContains("1090")
         compose.runOnIdle {assertEquals(0,calls)}
+    }
+    @Test fun disablingDailyRepeatDoesNotSubmitAnInvalidHiddenClock() {
+        val plan=deskJson.parseToJsonElement("""{"settings":{"start":1000,"increment":30,"interval_minutes":3,"target":1090,"daily":false,"start_time":"08:00"},"presets":[],"revision":"rev"}""").jsonObject
+        var sent: JsonObject?=null
+        compose.setContent {MaterialTheme {Column(Modifier.verticalScroll(rememberScrollState())) {StepPlanEditor(plan,false,true,{_,p->sent=p})}}}
+        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText("每日开始时间")).performScrollTo().performTextReplacement("invalid")
+        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onNodeWithText("每日开始时间").assertDoesNotExist()
+        compose.onNodeWithText("保存设置").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals("false",sent!!.text("daily"))
+            assertEquals("08:00",sent!!.text("start_time"))
+            assertEquals("自动任务",sent!!.text("name"))
+        }
     }
     @Test fun stopStaysEnabledDuringAnInFlightSubmission() {
         val run=deskJson.parseToJsonElement("""{"id":"round","name":"散步","status":"running","params":{"target":1090},"success_count":1,"current_job":{"steps":1030,"status":"running"}}""").jsonObject

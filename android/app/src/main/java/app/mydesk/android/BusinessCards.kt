@@ -152,7 +152,7 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
     var release by remember { mutableStateOf(false) }
     val job=snapshot.obj("wxstep")
     val active=job.text("status") in setOf("dispatching","queued","running","tracking_error")
-    DeskCard("微信步数",headerAction={TextButton({openPlan(false)}) {Text("渐进任务")}}) {
+    DeskCard("微信步数",headerAction={TextButton({openPlan(false)}) {Text("自动任务")}}) {
         if(snapshot.obj("configured").text("github") != "true") Text("微信步数尚未配置，在设置中连接步数工作流。")
         if(job.isNotEmpty()) StepsResult(job)
         if(job.text("status") == "tracking_error") TextButton({release=true}) {Text("检查后结束本地跟踪")}

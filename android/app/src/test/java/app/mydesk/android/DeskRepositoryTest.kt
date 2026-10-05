@@ -1,6 +1,9 @@
 package app.mydesk.android
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +17,52 @@ import kotlinx.serialization.json.*
 @Config(sdk=[35],application=android.app.Application::class)
 class DeskRepositoryTest {
     private val snapshot="""{"reminders":[{"id":"r1","title":"备份","remind_at":"2099-10-02T08:30:00Z","status":"pending","revision":"v1"}]}"""
+    @Test @Config(sdk=[32]) fun leavingTheActivityAfterCacheCommitStillArmsTheDeadline()=runBlocking {
+        val context=RuntimeEnvironment.getApplication()
+        val manager=context.getSystemService(android.app.AlarmManager::class.java)
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java)).setNotificationsEnabled(true)
+        val store=NativeStore(context,memory=true)
+        try {
+            val scheduler=ReminderScheduler(context,store)
+            val foregroundJob=Job()
+            val foreground=launch(foregroundJob) {
+                persistAndScheduleReminders({
+                    store.accept(snapshot)
+                    // onStop cancels the foreground sync just after its Room transaction commits.
+                    foregroundJob.cancel()
+                },{scheduler.apply(store.visible())})
+            }
+            foreground.join()
+            assertTrue(foreground.isCancelled)
+            assertEquals("r1",store.visible().single().id)
+            assertNotNull("已落盘的提醒不能因返回桌面而失去系统闹钟",manager.nextAlarmClock)
+            assertEquals(java.time.Instant.parse("2099-10-02T08:30:00Z").toEpochMilli(),manager.nextAlarmClock.triggerTime)
+        } finally {store.close()}
+    }
+    @Test @Config(sdk=[32]) fun leavingAfterCompletingAReminderAlsoCancelsItsOldAlarm()=runBlocking {
+        val context=RuntimeEnvironment.getApplication()
+        val manager=context.getSystemService(android.app.AlarmManager::class.java)
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java)).setNotificationsEnabled(true)
+        val store=NativeStore(context,memory=true)
+        try {
+            val scheduler=ReminderScheduler(context,store)
+            store.accept(snapshot);scheduler.apply(store.visible())
+            assertNotNull(manager.nextAlarmClock)
+            val foregroundJob=Job()
+            val foreground=launch(foregroundJob) {
+                persistAndScheduleReminders({
+                    store.enqueue("r1","v1","complete")
+                    foregroundJob.cancel()
+                },{scheduler.apply(store.visible())})
+            }
+            foreground.join()
+            assertTrue(foreground.isCancelled)
+            assertTrue(store.visible().isEmpty())
+            assertNull("已完成的提醒不能因同步被取消而留下旧闹钟",manager.nextAlarmClock)
+        } finally {store.close()}
+    }
     @Test fun lateSnapshotAndNotificationActionCannotRestoreDataAfterLogout()=runBlocking {
         val context=RuntimeEnvironment.getApplication()
         val store=NativeStore(context,memory=true)

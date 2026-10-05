@@ -52,7 +52,7 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
                     .putExtra("reminder_id",next.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarms.setAlarmClock(AlarmManager.AlarmClockInfo(whenMillis,show),alarmIntent())
-            if(BuildConfig.DEBUG) ReminderDiagnostics.event("scheduled","mode=alarm_clock target_ms=$whenMillis system_clock_matches=${runCatching {alarms.nextAlarmClock?.triggerTime == whenMillis}.getOrNull()} foreground=true")
+            ReminderDiagnostics.event("scheduled","mode=alarm_clock target_ms=$whenMillis system_clock_matches=${runCatching {alarms.nextAlarmClock?.triggerTime == whenMillis}.getOrNull()} foreground=true")
         } else {
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,whenMillis,alarmIntent())
             ReminderDiagnostics.event("scheduled","mode=inexact target_ms=$whenMillis foreground=true")
