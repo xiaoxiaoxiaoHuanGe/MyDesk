@@ -10,7 +10,7 @@ def build(output):
     output.parent.mkdir(parents=True,exist_ok=True)
     files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore')]
     files.append(ROOT/'assets/mydesk-logo.png')
-    files.append(ROOT/'.github/workflows/ci.yml')
+    files.extend((ROOT/'.github/workflows').glob('*.yml'))
     rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webp','.webmanifest'},
            'docs':{'.md'},'scripts':{'.py','.sh','.cjs','.ps1'},'tests':{'.py','.mjs'}}
     for folder,extensions in rules.items():
