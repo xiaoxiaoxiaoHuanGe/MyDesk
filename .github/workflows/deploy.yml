@@ -9,6 +9,7 @@ on:
       - 'scripts/deploy_server.py'
       - 'scripts/setup_actions_deploy.sh'
       - 'tests/test_actions_deploy.py'
+      - 'tests/check_actions_deploy_container.py'
 
 permissions:
   contents: read
@@ -52,6 +53,10 @@ jobs:
           done
           docker logs mydesk-ci
           exit 1
+      - name: Verify deployment and rollback with disposable containers
+        run: |
+          docker rm -f mydesk-ci
+          sudo --preserve-env=GITHUB_SHA "$(command -v python)" tests/check_actions_deploy_container.py
       - uses: actions/upload-artifact@v4
         with:
           name: mydesk-image-${{ github.sha }}
