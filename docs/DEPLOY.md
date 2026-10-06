@@ -1,5 +1,7 @@
 # 部署 MyDesk
 
+已有服务器的日常更新可使用 [GitHub Actions 一键部署](GITHUB_DEPLOY.md)：首次配置专用部署密钥，此后在 GitHub 点一次运行即可完成测试、备份、更新和健康检查。
+
 后端面向个人单账号使用。推荐 Linux、Docker Compose、自己的 HTTPS 域名和反向代理。
 
 ## Linux 服务器

@@ -1,0 +1,102 @@
+name: Deploy MyDesk server
+run-name: Deploy MyDesk by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy.yml'
+      - 'scripts/deploy_server.py'
+      - 'scripts/setup_actions_deploy.sh'
+      - 'tests/test_actions_deploy.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mydesk-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify backend and web
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m unittest discover -s tests -v
+          node --test tests/frontend.test.mjs tests/standalone.test.mjs tests/step-plan.test.mjs
+          docker compose -f deploy/compose.server.yaml config --quiet
+      - name: Build and smoke test the exact deployment image
+        run: |
+          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$GITHUB_SHA" -f deploy/Dockerfile -t "mydesk-deploy:$GITHUB_SHA" .
+          docker run -d --name mydesk-ci -p 127.0.0.1:8787:8787 "mydesk-deploy:$GITHUB_SHA" python -m mydesk --host 0.0.0.0 --port 8787 --data /data
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8787/health; then
+              docker save "mydesk-deploy:$GITHUB_SHA" | gzip > image.tar.gz
+              python -c 'import os; from pathlib import Path; from scripts.deploy_server import validate_archive; validate_archive(Path("image.tar.gz"), os.environ["GITHUB_SHA"])'
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs mydesk-ci
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mydesk-image-${{ github.sha }}
+          path: image.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Check deployment configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo 'Missing production secret DEPLOY_HOST'; exit 1; }
+          test -n "$DEPLOY_SSH_KEY" || { echo 'Missing production secret DEPLOY_SSH_KEY'; exit 1; }
+          test -n "$DEPLOY_KNOWN_HOSTS" || { echo 'Missing production secret DEPLOY_KNOWN_HOSTS'; exit 1; }
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo 'Invalid host'; exit 1; }
+          [[ "${DEPLOY_PORT:-22}" =~ ^[0-9]{1,5}$ ]] || { echo 'Invalid port'; exit 1; }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mydesk-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mydesk-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/mydesk-ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/mydesk-ssh/key" > /dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          name: mydesk-image-${{ github.sha }}
+      - name: Upload image and deploy using the restricted server receiver
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh -T -p "${DEPLOY_PORT:-22}" -i "$RUNNER_TEMP/mydesk-ssh/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/mydesk-ssh/known_hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=40 \
+            "root@$DEPLOY_HOST" "deploy $GITHUB_SHA" < image.tar.gz
+          echo "Deployed commit $GITHUB_SHA. Server health check passed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary SSH files
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/mydesk-ssh"
