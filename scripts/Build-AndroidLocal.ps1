@@ -31,6 +31,6 @@ try {
 } finally { Pop-Location }
 $outputDirectory = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-$output = Join-Path $outputDirectory 'MyDesk-1.2.0-local-debug.apk'
+$output = Join-Path $outputDirectory 'MyDesk-1.2.1-local-debug.apk'
 Copy-Item -LiteralPath (Join-Path $androidRoot 'app/build/outputs/apk/debug/app-debug.apk') -Destination $output
 Write-Output "APK: $output"

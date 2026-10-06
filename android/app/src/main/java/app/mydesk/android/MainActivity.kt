@@ -185,7 +185,7 @@ class MainActivity: ComponentActivity() {
     }) { padding ->
         DeskMainPages(pagerState,Modifier.fillMaxSize().padding(padding).imePadding(),
             userScrollEnabled=businessDetail == null && detailReminder == null && attentionDestination==null && !logout) {page->
-            if(page==2) StepsPage(snapshot,state.busy,state.message,stepsSection,{stepsSection=it},command,graph::loadStepHistory,open,navigationKey=stepsNavigation)
+            if(page==2) StepsPage(snapshot,state.busy,state.message,stepsSection,{stepsSection=it},command,graph::loadStepHistory,open,navigationKey=stepsNavigation,connected=state.connected)
             else LazyColumn(Modifier.fillMaxSize(),state=listStates[page],contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 item {
                     val daily=snapshot.obj("daily_quote")
@@ -247,7 +247,7 @@ class MainActivity: ComponentActivity() {
                                 }catch(error: Exception){focusMessage=error.message ?: "连接失败，请重试"}
                             }
                         } }
-                        item { StepsShortcut {stepsSection=0;stepsNavigation++;pageScope.launch {pagerState.animateScrollToPage(2)}} }
+
                         item { MailCard(snapshot,timezone) }
                         item { WorkbenchTaskCard(snapshot.rows("tasks"),timezone,{businessDetail=NotificationSection.TASKS to it},{historyTask=null;history=true}) }
                         item { ServerCard(snapshot,timezone) }

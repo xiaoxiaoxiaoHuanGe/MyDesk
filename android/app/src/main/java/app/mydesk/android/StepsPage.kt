@@ -16,15 +16,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 
-@Composable internal fun StepsShortcut(open: ()->Unit) {
-    DeskCard("步数",headerAction={TextButton(open) {Text("打开 ›")}}) {
-        Text("自动任务、手动提交与运行记录",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 @Composable internal fun StepsPage(snapshot: JsonObject,busy: Boolean,message: String,section: Int,onSection: (Int)->Unit,
     command: (String,JsonObject)->Unit,loadHistory: suspend (String,Int?)->List<JsonObject>,openUrl: (String)->Unit,
-    modifier: Modifier=Modifier,navigationKey: Int=0) {
+    modifier: Modifier=Modifier,navigationKey: Int=0,connected: Boolean?=null) {
     val plan=snapshot.obj("wxstep_plan")
     val current=plan.obj("run")
     val zone=snapshot.text("timezone","Asia/Shanghai")
@@ -41,7 +35,7 @@ import kotlinx.serialization.json.*
         return
     }
     LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        item {Text("步数",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold)}
+        item {DeskHeader("步数","",connected)}
         item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("自动任务","手动提交","任务记录").forEachIndexed {index,title->
@@ -95,8 +89,9 @@ import kotlinx.serialization.json.*
 
 @Composable internal fun StepSubmissionIssue(job: JsonObject,busy: Boolean,command: (String,JsonObject)->Unit,openUrl: (String)->Unit) {
     var release by remember {mutableStateOf(false)}
-    StepsResult(job)
-    job.text("url").takeIf {it.startsWith("https://github.com/")}?.let {url->TextButton({openUrl(url)}) {Text("查看工作流原因")}}
+    StepsResult(job) {
+        job.text("url","").takeIf {it.startsWith("https://github.com/")}?.let {url->TextButton({openUrl(url)}) {Text("查看工作流原因")}}
+    }
     if(job.text("status")=="tracking_error") TextButton({release=true},enabled=!busy) {Text("检查后结束本地跟踪")}
     if(release) AlertDialog(onDismissRequest={release=false},title={Text("结束本地跟踪？")},
         text={Text("请先在 GitHub Actions 确认本次任务。此操作不会取消已经发出的提交。")},

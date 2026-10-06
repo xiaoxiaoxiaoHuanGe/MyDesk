@@ -15,7 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import java.text.NumberFormat
 import java.util.Locale
 
-@Composable internal fun StepsResult(job: JsonObject) {
+@Composable internal fun StepsResult(job: JsonObject,action: (@Composable ColumnScope.()->Unit)?=null) {
     val state=job.text("status")
     val label=when(state) {
         "success"->"提交成功"; "failed"->"提交失败"; "queued"->"排队中"
@@ -42,6 +42,7 @@ import java.util.Locale
             }
             if(detail.isNotEmpty()) Text(detail,style=MaterialTheme.typography.bodySmall,
                 color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=3,overflow=TextOverflow.Ellipsis)
+            action?.invoke(this)
         }
     }
 }

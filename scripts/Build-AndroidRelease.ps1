@@ -50,7 +50,7 @@ try {
     if (!$certificateLine -or ($certificateLine -replace '^.*digest:\s*','').Trim() -ne $metadata.certificate_sha256) { throw 'RELEASE_CERTIFICATE_MISMATCH' }
     $outputDirectory = Join-Path $projectRoot 'dist'
     New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-    $output = Join-Path $outputDirectory 'MyDesk-1.2.0-release.apk'
+    $output = Join-Path $outputDirectory 'MyDesk-1.2.1-release.apk'
     Copy-Item -LiteralPath $apkPath -Destination $output
     Write-Output "Signed release APK: $output"
     Write-Output "Release certificate SHA-256: $($metadata.certificate_sha256)"

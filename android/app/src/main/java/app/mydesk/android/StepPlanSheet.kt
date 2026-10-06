@@ -132,7 +132,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
             },label={Text(preset.text("name"))},enabled=!busy)}
         }
         Row(Modifier.fillMaxWidth().testTag("plan-name-row"),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
-            DeskTextField(name,{name=it;error=""},label={Text("预设名称")},placeholder={Text("散步、跑步、逛街")},enabled=!busy,singleLine=true,modifier=Modifier.weight(1f).testTag("plan-name"))
+            DeskTextField(name,{name=it;error=""},label={Text("预设名称")},enabled=!busy,singleLine=true,modifier=Modifier.weight(1f).testTag("plan-name"))
             Surface(Modifier.weight(1f).testTag("plan-preview"),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     val p=parsed.getOrNull()
@@ -158,7 +158,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
         if(error.isNotEmpty()) Text(error,color=MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
             DeskOutlinedButton({send("wxstep/plan/save")},modifier=Modifier.weight(1f),enabled=!busy && parsed.isSuccess) {Text("保存配置")}
-            DeskButton({send("wxstep/plan/start")},modifier=Modifier.weight(1.3f),enabled=!busy && configured && parsed.isSuccess) {
+            DeskButton({send("wxstep/plan/start")},modifier=Modifier.weight(1f),enabled=!busy && configured && parsed.isSuccess) {
                 Icon(Icons.Default.PlayArrow,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("立即开始")
             }
         }

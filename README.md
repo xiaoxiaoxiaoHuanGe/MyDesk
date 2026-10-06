@@ -69,7 +69,7 @@ sudo cat data/LOCAL_ACCESS.md
 
 ### 2. 安装 Android APP
 
-从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.2.0-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
+从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.2.1-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
 
 系统要求 **Android 8.0 或更高版本**。正式版验证系统信任的 HTTPS 证书；首次创建提醒前，按 APP 引导授予通知和准确提醒权限。
 
