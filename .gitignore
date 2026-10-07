@@ -42,3 +42,4 @@ android/app/src/debug/res/raw/mydesk_local_ca.crt
 
 # Prepared Android update artifacts are deployment state
 /app-updates/
+node_modules/

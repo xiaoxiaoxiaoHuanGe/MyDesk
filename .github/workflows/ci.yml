@@ -35,6 +35,17 @@ jobs:
           path: dist/MyDesk-*-source.zip
           retention-days: 30
           if-no-files-found: error
+  web-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+      - run: npm exec --prefix frontend -- playwright-core install --with-deps chromium
+      - run: npm run --prefix frontend test:browser
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 25

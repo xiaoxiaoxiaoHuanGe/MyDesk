@@ -26,6 +26,16 @@ GitHub、邮件和服务器同步仍由后端执行，WebSocket 推送最新快�
 node --test tests/frontend.test.mjs tests/standalone.test.mjs
 ```
 
+收件箱异步已读操作的真实浏览器回归测试（不使用生产服务或账号）：
+
+```sh
+npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+npm exec --prefix frontend -- playwright-core install --with-deps chromium
+npm run --prefix frontend test:browser
+```
+
+测试启动临时回环 HTTP 服务，加载实际收件箱和弹窗模块，并延后模拟接口响应，覆盖全部已读/详情已读的成功、失败恢复及再次点击。GitHub CI 和服务器部署前都会执行。已有 Chromium/Chrome 时可设置 `MYDESK_BROWSER_EXECUTABLE` 为可执行文件路径，省略浏览器安装；Windows 默认使用已有 Edge，也可通过 `MYDESK_BROWSER_CHANNEL` 指定其他 Chromium 渠道。
+
 启动隔离的演示服务（只绑定 `127.0.0.1:8790`）：
 
 ```sh

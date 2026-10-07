@@ -11,7 +11,12 @@ export function openInbox(request,snapshot={},initial='') {
     try {
       const item=await request('/api/inbox/'+id);
       const child=openDialog(item.title,`<p>${e(item.source_name)} · ${e(formatDate(item.received_at,zone,true))}</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${e(item.body)}</pre><button class="secondary" data-read>标为已读</button>`,{replace:false});
-      child.querySelector('[data-read]').onclick=async event=>{event.currentTarget.disabled=true;try {await request('/api/inbox/read',{method:'POST',body:{ids:[id]}});child.close();await load();}catch(error){child.feedback(error.message,true);event.currentTarget.disabled=false;}};
+      child.querySelector('[data-read]').onclick=async event=>{
+        const button=event.currentTarget;button.disabled=true;
+        try {await request('/api/inbox/read',{method:'POST',body:{ids:[id]}});child.close();await load();}
+        catch(error){child.feedback(error.message,true);}
+        finally{button.disabled=false;}
+      };
     } catch(error) {dialog.feedback(error.message,true);}
   }
   async function load(more=false) {
@@ -27,7 +32,12 @@ export function openInbox(request,snapshot={},initial='') {
   }
   dialog.querySelector('[data-source]').onchange=()=>load();
   dialog.querySelector('[data-more]').onclick=()=>load(true);dialog.querySelector('[data-refresh]').onclick=()=>load();
-  dialog.querySelector('[data-read-all]').onclick=async event=>{event.currentTarget.disabled=true;try {await request('/api/inbox/read',{method:'POST',body:{through_seq:through}});await load();}catch(error){dialog.feedback(error.message,true);}finally{event.currentTarget.disabled=false;}};
+  dialog.querySelector('[data-read-all]').onclick=async event=>{
+    const button=event.currentTarget;button.disabled=true;
+    try {await request('/api/inbox/read',{method:'POST',body:{through_seq:through}});await load();}
+    catch(error){dialog.feedback(error.message,true);}
+    finally{button.disabled=false;}
+  };
   load();if(initial)detail(initial);return dialog;
 }
 export function openNotificationSources(request) {

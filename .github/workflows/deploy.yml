@@ -39,6 +39,11 @@ jobs:
           python -m unittest discover -s tests -v
           node --test tests/frontend.test.mjs tests/standalone.test.mjs tests/step-plan.test.mjs tests/inbox.test.mjs
           docker compose -f deploy/compose.server.yaml config --quiet
+      - name: Verify inbox interactions in a real browser
+        run: |
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+          npm exec --prefix frontend -- playwright-core install --with-deps chromium
+          npm run --prefix frontend test:browser
       - name: Build and smoke test the exact deployment image
         run: |
           docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$GITHUB_SHA" -f deploy/Dockerfile -t "mydesk-deploy:$GITHUB_SHA" .
