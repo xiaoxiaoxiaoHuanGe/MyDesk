@@ -7,3 +7,5 @@
 先升级兼容后端，再用既有正式签名覆盖安装。第一次获得更新功能仍需手动安装；以后版本通过应用内更新。云端 debug 包与现装签名不一定相同，不要卸载、清空数据或更换正式密钥来完成验收。
 
 原签名构建、Firebase 真实配置、CPE 双发、系统安装器与锁屏通知均需本地真机接续。测试运行结果和交付限制见 [云端交付记录](CLOUD_FEATURE_DELIVERY.md)。
+
+GitHub `main` 更新后会运行 [MyDesk CI](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/actions/workflows/ci.yml)。打开对应提交的成功运行，在 **Artifacts** 下载 `MyDesk-Android-debug-提交SHA`（APK、版本元数据、SHA256 校验）或 `MyDesk-source-提交SHA`（源码 ZIP），保留 30 天。APK 使用每次运行生成的临时调试签名，仅供独立测试设备或模拟器使用；不能覆盖现有正式版或保证覆盖上一次 CI 调试包。不要卸载现有正式版以安装它。CI 不配置正式私钥，也不发布正式 APK；正式包仍须使用已有密钥和本机 Firebase 配置构建，再按 [应用更新发布步骤](APP_UPDATES.md)验证和发布。
