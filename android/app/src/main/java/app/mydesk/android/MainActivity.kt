@@ -124,6 +124,10 @@ class MainActivity: ComponentActivity() {
     var attentionDestination by remember {mutableStateOf<JsonObject?>(null)}
     var stepsSection by rememberSaveable {mutableIntStateOf(0)}
     var stepsNavigation by rememberSaveable {mutableIntStateOf(0)}
+    AppUpdatePrompt(graph)
+    var inboxOpen by rememberSaveable {mutableStateOf(false)}
+    var inboxReference by rememberSaveable {mutableStateOf<String?>(null)}
+    var sourcesOpen by rememberSaveable {mutableStateOf(false)}
     var logout by remember { mutableStateOf(false) }
     val snapshot=state.snapshot ?: buildJsonObject { }
     val timezone=snapshot.text("timezone","Asia/Shanghai")
@@ -153,6 +157,7 @@ class MainActivity: ComponentActivity() {
         detailReminderId=if(targetPage == 1) target.reference else null
         if(target.section == NotificationSection.SERVERS) snapshot.obj("feeds").obj("servers").obj("data").rows("items").firstOrNull {it.text("id","") == target.reference}?.let {businessDetail=target.section to it}
         if(target.section == NotificationSection.TASKS) snapshot.rows("tasks").firstOrNull {it.text("task_id","") == target.reference}?.let {businessDetail=target.section to it}
+        if(target.section==NotificationSection.INBOX) {inboxReference=target.reference;inboxOpen=true}
         pendingScroll=target
         onNotificationHandled()
     }
@@ -168,6 +173,7 @@ class MainActivity: ComponentActivity() {
             NotificationSection.SERVERS -> 5
             NotificationSection.NETWORK -> 6
             NotificationSection.STEPS -> 2
+            NotificationSection.INBOX -> 7
             NotificationSection.MAIL -> 3
         }
         val actualIndex=index + if(index > 0 && (state.queued > 0 || state.message.isNotBlank() || focusMessage.isNotEmpty() || state.busy)) 1 else 0
@@ -175,6 +181,8 @@ class MainActivity: ComponentActivity() {
         listState.scrollToItem(actualIndex)
         pendingScroll=null
     }
+    if(inboxOpen) InboxSheet(graph,snapshot,{inboxOpen=false;inboxReference=null},inboxReference)
+    if(sourcesOpen) NotificationSourcesSheet(graph,{sourcesOpen=false})
     val detailReminder=state.reminders.firstOrNull {it.id == detailReminderId}
     val command: (String,JsonObject)->Unit={action,payload->graph.perform { graph.command(action,payload) }}
     Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
@@ -217,6 +225,8 @@ class MainActivity: ComponentActivity() {
                             rename=settingsModel::renameDevice,changePassword={current,password->graph.perform {graph.changePassword(current,password)}},
                             error=if(settingsState.failed) settingsState.message else "",passwordError=state.message) }
                         item { NotificationSettings(graph,state,notify,exact,settings) }
+                        item { AppUpdateSettings(graph) }
+                        item { DeskCard("通知接入") {TextButton({sourcesOpen=true}) {Text("管理通知来源")};TextButton({inboxOpen=true}) {Text("查看收件箱")}} }
                         item { WorkbenchSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "") }
                         item { IntegrationSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "",checkTask=settingsModel::checkGitHubTask,feedback=settingsState.message,checkService=settingsModel::checkService) }
                         item { BackupSettings(graph,settingsModel::reload,enabled=!state.busy && !settingsState.busy) }
@@ -249,6 +259,7 @@ class MainActivity: ComponentActivity() {
                         } }
 
                         item { MailCard(snapshot,timezone) }
+                        item { RecentInbox(snapshot) {id->inboxReference=id;inboxOpen=true} }
                         item { WorkbenchTaskCard(snapshot.rows("tasks"),timezone,{businessDetail=NotificationSection.TASKS to it},{historyTask=null;history=true}) }
                         item { ServerCard(snapshot,timezone) }
                         item { NetworkCard(snapshot,timezone) }

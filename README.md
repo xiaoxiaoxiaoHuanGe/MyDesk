@@ -160,3 +160,14 @@ Android 构建及正式签名步骤见 [Android 开发说明](android/README.md)
 欢迎通过 [Issues](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/issues) 反馈问题或提交 Pull Request。提交截图和日志前请隐藏账号、服务地址与凭据。开发约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请参阅 [SECURITY.md](SECURITY.md)。
 
 MyDesk 源码采用 [MIT License](LICENSE)。第三方依赖遵循各自许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 1.3.0 三项新增功能
+
+随机步数、Android 应用内更新、CPE 文本通知收件箱已接入后端与客户端。使用及本地接续说明：
+
+- [随机步数](docs/STEP_PLANS.md)
+- [APK 更新发布与覆盖验收](docs/APP_UPDATES.md)
+- [CPE 接入与收件箱](docs/CPE_INBOX.md)
+- [云端交付与验证记录](docs/CLOUD_FEATURE_DELIVERY.md)
+
+更新 APK 目录需要独立持久挂载。先部署兼容后端，再用原有正式签名构建客户端；不要使用云端 debug 签名替换手机既有签名。生产部署和真机安装由维护者在本地完成。

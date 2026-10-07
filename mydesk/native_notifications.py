@@ -9,6 +9,10 @@ from .mobile import DeviceRemoved
 from .fcm import PushRetry,TokenExpired
 
 
+def push_text(value,limit):
+    return str(value).encode("utf-16-le")[:limit*2].decode("utf-16-le",errors="ignore")
+
+
 def digest(value):return hashlib.sha256(value.encode()).hexdigest()
 
 
@@ -39,7 +43,21 @@ class NativeNotifications:
             rows=[dict(r) for r in db.execute('SELECT * FROM native_devices WHERE push_token IS NOT NULL AND notifications_enabled=1')]
         return [r for r in rows if self.session_active(r['session_id'])]
 
+    def capture_inbox(self,now):
+        targets=self.targets()
+        with self.desk.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='inbox_dispatch'").fetchone():return
+            rows=db.execute('SELECT m.*,d.created_at FROM inbox_dispatch d JOIN inbox_messages m ON m.id=d.message_id WHERE d.event_id IS NULL ORDER BY m.seq').fetchall()
+            for row in rows:
+                if instant(row['created_at'])+timedelta(hours=1)<=now:
+                    db.execute('UPDATE inbox_dispatch SET event_id=? WHERE message_id=?',('expired',row['id']))
+                    continue
+                event=self._enqueue(db,'inbox','inbox',row['source_name']+' · '+row['title'],row['body'],row['id'],'',targets,instant(row['created_at']))
+                db.execute('UPDATE inbox_dispatch SET event_id=? WHERE message_id=?',(event,row['id']))
+
     def capture(self,snapshot,now):
+        self.capture_inbox(now)
         observed=[]
         reminders=snapshot.get('reminders',[])
         valid=[r for r in reminders if all(key in r for key in ('id','title','revision','remind_at','status'))]
@@ -93,7 +111,7 @@ class NativeNotifications:
 
     def _enqueue(self,db,kind,channel,title,body,reference,revision,targets,now):
         event=uuid4().hex
-        db.execute('INSERT INTO native_events VALUES (?,?,?,?,?,?,?,?,?)',(event,kind,channel,str(title)[:120],str(body)[:500],reference[:200],revision[:200],stamp(now),stamp(now+timedelta(hours=1))))
+        db.execute('INSERT INTO native_events VALUES (?,?,?,?,?,?,?,?,?)',(event,kind,channel,push_text(title,120),push_text(body,500),reference[:200],revision[:200],stamp(now),stamp(now+timedelta(hours=1))))
         for device in targets:
             db.execute('INSERT INTO native_deliveries(event_id,device_id,next_attempt_at,registration_id) VALUES (?,?,?,?)',(event,device['id'],stamp(now),device['registration_id']))
         return event
@@ -118,6 +136,7 @@ class NativeNotifications:
         return result
 
     async def drain(self,now):
+        await asyncio.to_thread(self.capture_inbox,now)
         if not self.sender or self.drain_lock.locked():return
         async with self.drain_lock:
             for event,device in await asyncio.to_thread(self.pending,now):

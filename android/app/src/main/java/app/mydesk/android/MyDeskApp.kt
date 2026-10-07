@@ -30,6 +30,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     private val http=OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).pingInterval(20,TimeUnit.SECONDS).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).build()
     val repo=DeskRepository(context,store,{client?.takeIf { it.vault.cookie.isNotEmpty() }},{phone.device},scheduler,{phone.deviceName})
     val push=NativePush(context,{client?.takeIf { it.vault.cookie.isNotEmpty() }},{phone.device},store,scheduler)
+    internal val updates=AppUpdateController(context,scope,{client?.takeIf {state.value.authenticated}},{invalidateSession(it)})
     val ready=CompletableDeferred<Unit>()
     private var foreground: Job?=null
     private var wantsForeground=false
@@ -40,6 +41,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
             prefs.flow.collect { value ->
                 val changed=value.server != phone.server
                 phone=value
+                if(changed) updates.reset()
                 if (changed || client == null) client=value.server.takeIf { it.isNotEmpty() }?.let { MyDeskApi(it,SecureVault(context,it),http) }
                 mutable.update { it.copy(server=value.server,theme=value.theme,deviceName=value.deviceName,ready=true,authenticated=client?.vault?.cookie?.isNotEmpty() == true) }
                 if (!ready.isCompleted) ready.complete(Unit)
@@ -63,6 +65,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     }
     suspend fun login(server: String,username: String,password: String) {
         ready.await()
+        updates.reset()
         val base=InputRules.server(server)
         if (base != phone.server) { stopForeground(); repo.endSession {push.clear()} }
         val api=MyDeskApi(base,SecureVault(context,base),http)
@@ -75,7 +78,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         schedulePeriodic(); startForeground()
     }
     suspend fun logout() {
-        ready.await(); stopForeground()
+        ready.await(); updates.reset(); stopForeground()
         mutable.update {it.copy(authenticated=false,connected=false)}
         WorkManager.getInstance(context).cancelAllWorkByTag("mydesk-sync")
         push.clear()
@@ -125,6 +128,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         }
     }
     private suspend fun invalidateSession(error: ApiError) {
+        updates.reset()
         mutable.update {it.copy(authenticated=false,connected=false)}
         withContext(NonCancellable) {
             repo.endSession {push.clear();client?.vault?.apply {cookie="";csrf=""}}
@@ -146,6 +150,17 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     }
     suspend fun checkGitHubTask(payload: JsonObject): JsonObject=authorized {repo.command("github_task/check",payload).jsonObject}
     suspend fun checkService(payload: JsonObject): JsonObject=authorized {repo.command("service/check",payload).jsonObject}
+    suspend fun inboxRequest(path: String,method: String="GET",body: JsonObject?=null): JsonObject=authorized {
+        ready.await();val active=client ?: error("请先登录")
+        val cookie=active.vault.cookie
+        check(state.value.authenticated&&cookie.isNotBlank()) {"请先登录"}
+        val result=active.request(path,method,body).jsonObject
+        check(client===active&&state.value.authenticated&&active.vault.cookie==cookie) {"会话已变化，请重试"}
+        result
+    }
+    suspend fun readInbox(payload: JsonObject) {
+        repo.readInbox(payload);requestSync();runCatching {sync()}
+    }
     suspend fun settings(): JsonObject=authorized {ready.await();client!!.request("/api/settings").jsonObject}
     suspend fun backup(action: String,value: JsonObject): JsonObject=authorized {
         require(action in setOf("export","preview","apply"))
@@ -185,6 +200,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
                 while (isActive && state.value.authenticated) {
                     try {
                         sync()
+                        updates.check()
                         val api=client ?: break
                         val messages=Channel<String>(Channel.CONFLATED)
                         val request=Request.Builder().url(api.base.replaceFirst("https://","wss://")+"/api/ws").header("Cookie",api.vault.cookie).build()

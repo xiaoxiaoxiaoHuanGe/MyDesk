@@ -1,6 +1,7 @@
 """Build an allowlisted deployment archive. Private runtime state is never read."""
 from pathlib import Path
 import zipfile
+import re
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -30,5 +31,7 @@ def build(output):
 
 
 if __name__=='__main__':
-    output=build(ROOT/'dist/MyDesk-1.2.1-source.zip')
+    version=re.search(r'versionName\s*=\s*"([^"]+)"',(ROOT/'android/app/build.gradle.kts').read_text())[1]
+    if not re.fullmatch(r'[A-Za-z0-9._-]+',version):raise ValueError('Invalid source version')
+    output=build(ROOT/('dist/MyDesk-'+version+'-source.zip'))
     print(f'Release: {output}')

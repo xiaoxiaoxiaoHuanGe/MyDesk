@@ -3,12 +3,17 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import time
+import sqlite3
+import re
 from contextlib import suppress
 from pathlib import Path
 
 from aiohttp import ClientSession, web
 
+from .app_updates import AppUpdates
+from .inbox import IncomingError
 from .auth import Auth
 from .config import Settings,mail_accounts,server_sources
 from .domain import Desk
@@ -41,6 +46,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     settings=Settings(directory/'settings.json')
     backups=Backups(settings,directory)
     backup_lock=asyncio.Lock()
+    updates=AppUpdates(os.environ.get('MYDESK_UPDATE_DIR',str(directory/'app-updates')))
     sockets={}
     failures={}
 
@@ -54,7 +60,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
             origin=request.headers.get('Origin')
             if (request.method not in ('GET','HEAD') or request.path=='/api/ws') and origin and origin!=str(request.url.origin()):
                 raise web.HTTPForbidden(text='请求来源无效')
-            private=request.path.startswith('/api/') and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/')
+            incoming=request.method=='POST' and re.fullmatch(r'/api/incoming/feishu/[a-f0-9]{32}/[a-f0-9]{64}',request.path) is not None
+            private=request.path.startswith('/api/') and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/') and not incoming
             if private:
                 session=await asyncio.to_thread(auth.session,request.cookies.get(COOKIE))
                 if not session:
@@ -63,10 +70,14 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
                 if request.method not in ('GET','HEAD') and not hmac.compare_digest(request.headers.get('X-MyDesk-CSRF',''),session['csrf']):
                     raise web.HTTPForbidden(text='会话验证失败，请重新登录')
             response=await handler(request)
+        except IncomingError as exc:
+            response=web.json_response({'code':exc.status,'msg':str(exc)},status=exc.status,headers={'Retry-After':'60'} if exc.status==429 else None)
         except web.HTTPException as exc:
-            response=web.json_response({'error':exc.text if exc.status!=413 else '请求内容过大'},status=exc.status)
+            if re.fullmatch(r'/api/incoming/feishu/[a-f0-9]{32}/[a-f0-9]{64}',request.path):
+                response=web.json_response({'code':exc.status,'msg':'请求内容过大' if exc.status==413 else '请求无效'},status=exc.status)
+            else:response=web.json_response({'error':exc.text if exc.status!=413 else '请求内容过大'},status=exc.status)
         except (ValueError,TypeError,KeyError,AttributeError):
-            response=web.json_response({'error':'请求格式或内容无效'},status=400)
+            response=web.json_response({'code':400,'msg':'请求格式或内容无效'} if request.path.startswith('/api/incoming/feishu/') else {'error':'请求格式或内容无效'},status=400)
         response.headers['Cache-Control']='no-store'
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='same-origin'
@@ -111,6 +122,50 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
         response=web.json_response({'username':data['username'],'csrf':csrf})
         response.set_cookie(COOKIE,token,httponly=True,secure=request.secure,samesite='Strict',max_age=7*86400,path='/')
         return response
+
+    async def notification_sources(request):
+        inbox=(await runtime()).inbox
+        if request.method=='GET':
+            result={'sources':await asyncio.to_thread(inbox.sources),'push_available':app[STATE]['native_notifications'].sender is not None}
+        elif request.method=='POST' and 'source' not in request.match_info:
+            result=await asyncio.to_thread(inbox.create,await request.json())
+        else:
+            action='rotate' if request.path.endswith('/rotate-secret') else 'delete' if request.method=='DELETE' else 'edit'
+            result=await asyncio.to_thread(inbox.change,request.match_info['source'],await request.json() if action=='edit' else None,action,now_utc())
+        await (await runtime()).publish()
+        return web.json_response(result)
+
+    async def incoming_text(request):
+        try:
+            await asyncio.to_thread((await runtime()).inbox.receive,request.match_info['source'],request.match_info['secret'],await request.json(),request.headers.get('Idempotency-Key'),now_utc())
+        except sqlite3.Error:raise IncomingError(500,'临时存储失败，请稍后重试') from None
+        # Persistence includes a durable dispatch entry. Socket refresh/FCM never gate the ACK.
+        app[STATE]['inbox_changed'].set()
+        return web.json_response({'code':0,'msg':'success'})
+
+    async def inbox_page(request):
+        query=request.query
+        result=await asyncio.to_thread((await runtime()).inbox.page,int(query.get('limit','50')),int(query['before']) if 'before' in query else None,query.get('source_id'),now_utc())
+        return web.json_response(result)
+
+    async def inbox_detail(request):
+        return web.json_response(await asyncio.to_thread((await runtime()).inbox.detail,request.match_info['message']))
+
+    async def inbox_read(request):
+        result=await asyncio.to_thread((await runtime()).inbox.read,await request.json(),now_utc())
+        await (await runtime()).publish()
+        return web.json_response(result)
+
+    async def app_update(request):
+        try:result=await asyncio.to_thread(updates.latest,request.query.get('channel','release'))
+        except (OSError,ValueError):raise web.HTTPServiceUnavailable(text='应用更新配置暂不可用') from None
+        return web.json_response(result)
+
+    async def app_artifact(request):
+        try:path=await asyncio.to_thread(updates.artifact,request.match_info['artifact'])
+        except FileNotFoundError:raise web.HTTPNotFound(text='更新产物不存在') from None
+        except (OSError,ValueError):raise web.HTTPServiceUnavailable(text='更新产物暂不可用') from None
+        return web.FileResponse(path,headers={'Content-Type':'application/vnd.android.package-archive'})
 
     async def session(request):
         return web.json_response({'username':request['session']['username'],'csrf':request['session']['csrf']})
@@ -355,9 +410,23 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
             app[STATE]['mobile']=mobile
             app[STATE]['native_notifications']=native
             update_targets()
+            app[STATE]['inbox_changed']=asyncio.Event()
+            async def inbox_updates():
+                while True:
+                    await app[STATE]['inbox_changed'].wait()
+                    app[STATE]['inbox_changed'].clear()
+                    publishing=asyncio.create_task(rt.publish())
+                    try:await asyncio.shield(publishing)
+                    except asyncio.CancelledError:
+                        # Executor DB work cannot be cancelled by cancelling its awaiting coroutine.
+                        # Finish this publication before teardown releases the database directory.
+                        await publishing
+                        raise
+                    except Exception:logging.getLogger('mydesk').error('通知同步暂时失败，持久派发记录将在后台重试')
             await rt.recover()
             async def deliver_native():await native.drain(now_utc())
             tasks=[asyncio.create_task(background(rt.tick,15)),asyncio.create_task(background(rt.refresh,60)),asyncio.create_task(background(rt.refresh_quote,60)),asyncio.create_task(background(deliver_native,5))] if scheduling else []
+            tasks.append(asyncio.create_task(inbox_updates()))
             try:
                 yield
             finally:
@@ -373,6 +442,17 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     app.router.add_get('/health',health)
     app.router.add_post('/api/login',login)
     app.router.add_get('/api/session',session)
+    app.router.add_get('/api/notification-sources',notification_sources)
+    app.router.add_post('/api/notification-sources',notification_sources)
+    app.router.add_patch('/api/notification-sources/{source}',notification_sources)
+    app.router.add_delete('/api/notification-sources/{source}',notification_sources)
+    app.router.add_post('/api/notification-sources/{source}/rotate-secret',notification_sources)
+    app.router.add_post('/api/incoming/feishu/{source:[a-f0-9]{32}}/{secret:[a-f0-9]{64}}',incoming_text)
+    app.router.add_get('/api/inbox',inbox_page)
+    app.router.add_post('/api/inbox/read',inbox_read)
+    app.router.add_get('/api/inbox/{message}',inbox_detail)
+    app.router.add_get('/api/app-update',app_update)
+    app.router.add_get('/api/app-update/artifacts/{artifact}.apk',app_artifact)
     app.router.add_post('/api/logout',logout)
     app.router.add_post('/api/password',password)
     app.router.add_post('/api/command',command)

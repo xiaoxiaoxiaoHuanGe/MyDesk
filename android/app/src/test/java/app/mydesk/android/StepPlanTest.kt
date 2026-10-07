@@ -74,6 +74,25 @@ class StepPlanTest {
         compose.onNodeWithText("1120 步").assertDoesNotExist()
         compose.runOnIdle {assertEquals(listOf("old"),queried)}
     }
+    @Test fun randomNewConfigurationDefaultsOnAndLegacyPresetRemainsFixed() {
+        val plan=deskJson.parseToJsonElement("""{"capabilities":{"random_steps":true},"settings":{},"presets":[{"id":"walk","name":"旧预设","start":80,"increment":80,"interval_minutes":3,"target":975}],"revision":"rev"}""").jsonObject
+        var sent=buildJsonObject {}
+        compose.setContent {MaterialTheme {Column(Modifier.verticalScroll(rememberScrollState())) {StepPlanEditor(plan,false,true,{_,p->sent=p})}}}
+        compose.onNodeWithTag("plan-random").assertIsOn()
+        compose.onNodeWithText("旧预设").performClick()
+        compose.onNodeWithTag("plan-random").performScrollTo().assertIsOff().performClick()
+        compose.onNodeWithText("每次增加 72～88 步；末次可能因 30000 封顶减少").assertExists()
+        compose.onNodeWithText("保存配置").performScrollTo().performClick()
+        compose.runOnIdle {assertEquals("10",sent.text("random_percent"))}
+    }
+    @Test fun oldServerDisablesRandomWithoutBreakingFixedPlans() {
+        val plan=deskJson.parseToJsonElement("""{"settings":{"start":80,"increment":80,"interval_minutes":3,"target":975},"presets":[],"revision":"rev"}""").jsonObject
+        var sent=buildJsonObject {}
+        compose.setContent {MaterialTheme {Column(Modifier.verticalScroll(rememberScrollState())) {StepPlanEditor(plan,false,true,{_,p->sent=p})}}}
+        compose.onNodeWithTag("plan-random").assertIsOff().assertIsNotEnabled()
+        compose.onNodeWithText("保存配置").performScrollTo().performClick()
+        compose.runOnIdle {assertEquals("0",sent.text("random_percent"))}
+    }
     @Test fun strictCrossingPreviewAndIntegerValidation() {
         val p=StepPlanInput.parse("1000","30","3","1090")
         assertEquals(1120,p.final);assertEquals(5,p.count);assertEquals(12,p.duration)
@@ -103,9 +122,9 @@ class StepPlanTest {
         val plan=deskJson.parseToJsonElement("""{"settings":{"start":1000,"increment":30,"interval_minutes":3,"target":1090,"daily":false,"start_time":"08:00"},"presets":[],"revision":"rev"}""").jsonObject
         var sent: JsonObject?=null
         compose.setContent {MaterialTheme {Column(Modifier.verticalScroll(rememberScrollState())) {StepPlanEditor(plan,false,true,{_,p->sent=p})}}}
-        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
         compose.onNode(hasSetTextAction() and hasText("每日开始时间")).performScrollTo().performTextReplacement("invalid")
-        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onAllNodes(isToggleable()).onLast().performScrollTo().performClick()
         compose.onNodeWithText("每日开始时间").assertDoesNotExist()
         compose.onNodeWithText("保存配置").performScrollTo().performClick()
         compose.runOnIdle {

@@ -24,7 +24,7 @@ object NotificationInput {
     internal fun valid(value: String): Boolean=value.isNotBlank() && value.length <= 200 && value.none {it.isISOControl()}
 }
 
-enum class NotificationSection { WORKBENCH,ATTENTION,REMINDERS,TASKS,SERVERS,NETWORK,STEPS,MAIL }
+enum class NotificationSection { WORKBENCH,ATTENTION,REMINDERS,TASKS,SERVERS,NETWORK,STEPS,MAIL,INBOX }
 data class NotificationTarget(val section: NotificationSection,val reference: String="")
 data class NotificationLaunch(val intent: Intent,val sequence: Long)
 object NotificationNavigation {
@@ -32,6 +32,7 @@ object NotificationNavigation {
         intent.getStringExtra("reminder_id")?.takeIf {NotificationInput.valid(it)}?.let {return NotificationTarget(NotificationSection.REMINDERS,it)}
         val reference=intent.getStringExtra("event_reference")?.takeIf {NotificationInput.valid(it)} ?: ""
         val section=when(intent.getStringExtra("event_kind")) {
+            "inbox" -> NotificationSection.INBOX
             "task" -> if(reference.isNotEmpty() && snapshot.obj("wxstep").text("id","") == reference) NotificationSection.STEPS else NotificationSection.TASKS
             "alert" -> when {
                 reference == "servers" || snapshot.obj("feeds").obj("servers").obj("data").rows("items").any {it.text("id","") == reference && reference.isNotEmpty()} -> NotificationSection.SERVERS

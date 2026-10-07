@@ -21,6 +21,7 @@ class AndroidReleaseTests(unittest.TestCase):
             (fixture/'.local/android/debug.keystore').write_bytes(b'fixture')
             (fixture/'.local/standalone/tls/mydesk-local-ca.crt').write_text('fixture')
             (fixture/'android/app/build/outputs/apk/debug/app-debug.apk').write_bytes(b'fixture')
+            (fixture/'android/app/build/outputs/apk/debug/output-metadata.json').write_text('{"elements":[{"versionName":"1.3.0"}]}')
             gradle=fixture/'.local/tools/gradle-8.13/bin/gradle.bat'
             gradle.write_text('@echo off\n> "%~dp0arguments.txt" echo %*\nexit /b 0\n')
             for executable in filter(None,(shutil.which('pwsh'),shutil.which('powershell'))):

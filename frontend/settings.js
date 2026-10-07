@@ -1,4 +1,5 @@
 import {escapeHtml as e} from './ui.js';
+import {openInbox,openNotificationSources} from './inbox.js';
 import {icon} from './icons.js';
 import {openDialog,confirmDialog} from './dialog.js';
 
@@ -16,7 +17,7 @@ export async function renderSettings(context){
     <section class="settings-card account-card"><span class="account-avatar">${e(ctx.session.username.slice(0,1).toUpperCase())}</span><div class="account-info"><h2>${e(ctx.session.username)}</h2><p>${e(location.host)}</p></div><div class="account-actions">${buttonIcon('sync','立即同步所有服务','sync')}${buttonIcon('password','修改密码','password')}${buttonIcon('logout','退出账号','logout')}</div></section>
     <section class="settings-card appearance-card"><div><h2>外观</h2><p class="help">让工作台适应你的光线。</p></div><div class="appearance-switch" role="group" aria-label="外观">${[['dark','moon','深色'],['system','monitor','跟随系统'],['light','sun','浅色']].map(([choice,glyph,label])=>`<button type="button" data-appearance="${choice}" aria-label="${label}" title="${label}" aria-pressed="${ctx.getAppearance()===choice}">${icon(glyph)}</button>`).join('')}</div></section>
     <section class="settings-card settings-services"><header><h2>外部服务</h2><p class="help">独立管理，集中查看。</p></header>${row('github','github','GitHub 任务','工作流与微信步数',Object.keys(s.github_tasks||{}).length+(s.github?1:0))}${row('mail','mail','Gmail 邮箱','多个邮箱，统一收件箱',Object.keys(s.gmail_accounts||{}).length)}${row('servers','server','服务器','1Panel v2 与 Beszel',Object.keys(s.server_sources||{}).length)}${row('network','network','网络检测','连通性与地区节点',s.network.nodes.length)}</section>
-    <section class="settings-card settings-preferences"><header><h2>偏好与数据</h2><p class="help">简单设置，安心使用。</p></header>${row('general','clock','时间与历史',s.timezone+' · 保留 '+s.history_days+' 天')}${row('devices','phone','手机通知',d.devices.length?'管理已登记的 App 设备':'安装 App，接收手机提醒',d.devices.length)}${row('backup','backup','配置备份','加密导出与恢复配置')}</section>
+    <section class="settings-card settings-preferences"><header><h2>偏好与数据</h2><p class="help">简单设置，安心使用。</p></header>${row('general','clock','时间与历史',s.timezone+' · 保留 '+s.history_days+' 天')}${row('devices','phone','手机通知',d.devices.length?'管理已登记的 App 设备':'安装 App，接收手机提醒',d.devices.length)}${row('notification-sources','bell','通知接入','CPE 短信与外部文本通知')}${row('inbox','mail','通知收件箱','查看通知与管理已读')}${row('backup','backup','配置备份','加密导出与恢复配置')}</section>
   </div>`;
   target.querySelectorAll('[data-appearance]').forEach(button=>button.onclick=()=>ctx.setAppearance(button.dataset.appearance));
   target.querySelectorAll('[data-setting]').forEach(button=>button.onclick=()=>handle(button.dataset.setting,button));
@@ -38,6 +39,8 @@ async function handle(action,button){
     else if(action==='general')general();
     else if(action==='network')network();
     else if(action==='devices')deviceManager();
+    else if(action==='notification-sources')openNotificationSources(ctx.request);
+    else if(action==='inbox'){const snapshot=await ctx.request('/api/command',{method:'POST',body:{action:'snapshot'}});openInbox(ctx.request,snapshot);}
     else if(action==='backup')backup();
     else manager(action);
   }catch(error){ctx.toast(error.message,true);}

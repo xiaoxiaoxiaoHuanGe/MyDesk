@@ -26,7 +26,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
     val settings=plan.obj("settings");val presets=plan.rows("presets")
     val linked=presets.firstOrNull {it.text("id")==settings.text("preset_id")}
     val legacy=presets.firstOrNull {preset->preset.text("name")==settings.text("name") &&
-        listOf("start","increment","interval_minutes","target").all {preset.text(it)==settings.text(it)}}
+        listOf("start","increment","interval_minutes","target").all {preset.text(it)==settings.text(it)} && preset.text("random_percent","0")==settings.text("random_percent","0")}
     return (linked ?: legacy)?.text("id") ?: ""
 }
 
@@ -60,6 +60,8 @@ internal fun stepPresetSelection(plan: JsonObject): String {
 
 @Composable internal fun StepPlanEditor(plan: JsonObject,busy: Boolean,configured: Boolean,command: (String,JsonObject)->Unit) {
     val settings=plan.obj("settings")
+    val supportsRandom=plan.obj("capabilities").text("random_steps")=="true"
+    var random by rememberSaveable {mutableStateOf(supportsRandom && (!settings.containsKey("start") || settings.text("random_percent","0")=="10"))}
     var start by rememberSaveable {mutableStateOf(settings.text("start",""))}
     var increment by rememberSaveable {mutableStateOf(settings.text("increment",""))}
     var interval by rememberSaveable {mutableStateOf(settings.text("interval_minutes",""))}
@@ -73,7 +75,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
     var initialized by rememberSaveable {mutableStateOf(settings.containsKey("start"))}
     LaunchedEffect(plan.text("revision")) {
         if(!initialized && settings.containsKey("start")) {
-            start=settings.text("start");increment=settings.text("increment");interval=settings.text("interval_minutes");target=settings.text("target")
+            random=settings.text("random_percent","0")=="10";start=settings.text("start");increment=settings.text("increment");interval=settings.text("interval_minutes");target=settings.text("target")
             name=stepPlanName(settings.text("name"));selected=stepPresetSelection(plan);daily=settings.text("daily")=="true";clock=settings.text("start_time","08:00")
             draftRevision=plan.text("revision");initialized=true
         }
@@ -88,10 +90,11 @@ internal fun stepPresetSelection(plan: JsonObject): String {
     var removing by remember {mutableStateOf(false)}
     var managing by remember {mutableStateOf(false)}
     val presets=plan.rows("presets")
-    val parsed=runCatching {StepPlanInput.parse(start,increment,interval,target)}
+    val parsed=runCatching {StepPlanInput.parse(start,increment,interval,target,if(random&&supportsRandom) 10 else 0)}
     fun send(action: String,newPreset: Boolean=false) {
         runCatching {
-            val p=StepPlanInput.parse(start,increment,interval,target)
+            require(!random||supportsRandom) {"随机功能需要升级服务器"}
+            val p=StepPlanInput.parse(start,increment,interval,target,if(random&&supportsRandom) 10 else 0)
             if(daily) require(clock.matches(Regex("(?:[01]\\d|2[0-3]):[0-5]\\d"))) {"每日开始时间请填写为 08:00 这样的格式"}
             val payload=buildJsonObject {
                 p.json().forEach {(k,v)->put(k,v)}
@@ -112,7 +115,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
             Box {
                 TextButton({managing=true},enabled=!busy) {Text("管理")}
                 DropdownMenu(managing,{managing=false}) {
-                    DropdownMenuItem(text={Text("新建配置")},onClick={selected="";name="";draftRevision=plan.text("revision");managing=false;error=""})
+                    DropdownMenuItem(text={Text("新建配置")},onClick={selected="";name="";random=supportsRandom;draftRevision=plan.text("revision");managing=false;error=""})
                     if(selected.isNotEmpty()) {
                         DropdownMenuItem(text={Text("删除当前配置")},onClick={managing=false;removing=true})
                         for((label,offset) in listOf("前移" to -1,"后移" to 1)) DropdownMenuItem(text={Text(label)},onClick={
@@ -128,7 +131,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
             presets.forEach {preset->FilterChip(selected==preset.text("id"),{
                 val arrangement=if(preset.containsKey("daily")) preset else if(preset.text("id")==stepPresetSelection(plan)) settings else buildJsonObject {}
                 selected=preset.text("id");name=preset.text("name");start=preset.text("start");increment=preset.text("increment")
-                interval=preset.text("interval_minutes");target=preset.text("target");daily=arrangement.text("daily")=="true";clock=arrangement.text("start_time","08:00");draftRevision=plan.text("revision");error=""
+                random=preset.text("random_percent","0")=="10";interval=preset.text("interval_minutes");target=preset.text("target");daily=arrangement.text("daily")=="true";clock=arrangement.text("start_time","08:00");draftRevision=plan.text("revision");error=""
             },label={Text(preset.text("name"))},enabled=!busy)}
         }
         Row(Modifier.fillMaxWidth().testTag("plan-name-row"),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -136,19 +139,25 @@ internal fun stepPresetSelection(plan: JsonObject): String {
             Surface(Modifier.weight(1f).testTag("plan-preview"),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     val p=parsed.getOrNull()
-                    Text(if(p!=null) "预计 ${p.duration} 分钟" else "预计耗时",style=MaterialTheme.typography.titleSmall)
-                    Text(if(p!=null) "${p.count} 次 · 最后 ${p.final} 步" else "填入步数参数后显示",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(p!=null) "预计 ${p.durationLabel} 分钟" else "预计耗时",style=MaterialTheme.typography.titleSmall)
+                    Text(if(p!=null) "${p.estimateLabel}" else "填入步数参数后显示",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
         for(row in listOf(
             listOf(PlanField("start","起始步数",start,{start=it}),PlanField("target","终止步数",target,{target=it})),
-            listOf(PlanField("increment","每次增加步数",increment,{increment=it}),PlanField("interval","间隔时间（分钟）",interval,{interval=it})))) {
+            listOf(PlanField("increment","基准增加步数",increment,{increment=it}),PlanField("interval","间隔时间（分钟）",interval,{interval=it})))) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 row.forEach {field->DeskTextField(field.value,{field.setter(it);error=""},label={Text(field.label,style=MaterialTheme.typography.bodySmall)},singleLine=true,enabled=!busy,
                     keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.weight(1f).testTag("plan-${field.tag}"))}
             }
         }
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            Text("随机浮动 ±10%");Switch(random,{random=it;error=""},enabled=!busy&&supportsRandom,modifier=Modifier.testTag("plan-random"))
+        }
+        if(!supportsRandom) Text("随机功能需要升级服务器",style=MaterialTheme.typography.bodySmall)
+        parsed.getOrNull()?.let {p->if(random&&supportsRandom) Text("每次增加 ${p.low}～${p.high} 步；末次可能因 30000 封顶减少",style=MaterialTheme.typography.bodySmall)}
+        Text("计划间隔估算，排队与重试会增加实际耗时",style=MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {Text("每日重复");Switch(daily,{daily=it;error=""},enabled=!busy)}
         if(daily) {

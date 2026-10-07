@@ -3,6 +3,7 @@ import {DeskClient} from './transport.js';
 import {resolveAppearance} from './ui.js';
 import {icon} from './icons.js';
 import {renderSettings,openSettingsTarget} from './settings.js';
+import {openInbox} from './inbox.js';
 import {openStepPlan} from './step-plan.js';
 
 const $=selector=>document.querySelector(selector);
@@ -76,7 +77,8 @@ window.addEventListener('hashchange',route);
 document.addEventListener('mydesk-navigate',async event=>{
   try {
     const d=event.detail,cards=$('#desk').childrenCards||[],card=mode=>cards.find(c=>c.config.mode===mode);
-    if(d.type==='reminder')card('attention').showReminder(d.id);
+    if(d.type==='inbox')openInbox(request,client.state,d.id);
+    else if(d.type==='reminder')card('attention').showReminder(d.id);
     else if(d.type==='task')card('automation').showTask(d.id);
     else if(d.type==='server')card('server').showServer(d.id);
     else if(d.type==='network'){card('network').showNodes(d.id);}

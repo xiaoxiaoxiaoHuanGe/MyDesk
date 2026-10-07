@@ -1,1 +1,1 @@
-{"name":"mydesk-frontend","version":"0.2.0","type":"module","private":true,"scripts":{"test":"node --test ../tests/frontend.test.mjs ../tests/standalone.test.mjs"}}
+{"name":"mydesk-frontend","version":"0.2.0","type":"module","private":true,"scripts":{"test":"node --test ../tests/frontend.test.mjs ../tests/standalone.test.mjs ../tests/step-plan.test.mjs ../tests/inbox.test.mjs"}}

@@ -64,6 +64,10 @@ class DeskRepository(val context: Context,val store: NativeStore,val api: ()->My
                 } else throw error
             }
         }
+        for(operation in store.inboxPending()) {
+            client.request("/api/inbox/read","POST",deskJson.parseToJsonElement(operation.json))
+            store.inboxReceipt(operation.operationId)
+        }
         val snapshot=client.request("/api/command","POST",buildJsonObject { put("action","snapshot") })
         persistAndScheduleReminders({store.accept(snapshot.toString())},{scheduler.apply(store.visible())})
         true
@@ -72,6 +76,11 @@ class DeskRepository(val context: Context,val store: NativeStore,val api: ()->My
         check(sessionOpen) {"账号已退出，请重新登录"}
         persistAndScheduleReminders({store.enqueue(id,revision,action,minutes)},{scheduler.apply(store.visible())})
     }
+    suspend fun readInbox(payload: JsonObject)=syncLock.withLock {
+        check(sessionOpen && api()!=null) {"账号已退出，请重新登录"}
+        store.enqueueInboxRead(payload)
+    }
+    suspend fun cacheInbox(rows: List<JsonObject>)=syncLock.withLock {if(sessionOpen)store.cacheInbox(rows)}
     suspend fun snapshot(value: String)=syncLock.withLock {if(sessionOpen) persistAndScheduleReminders({store.accept(value)},{scheduler.apply(store.visible())})}
     suspend fun command(action: String,payload: JsonObject=buildJsonObject { }): JsonElement {
         val client=api() ?: error("请先登录")
