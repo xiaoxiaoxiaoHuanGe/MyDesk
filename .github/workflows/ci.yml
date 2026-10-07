@@ -20,6 +20,13 @@ jobs:
       - run: node --test tests/frontend.test.mjs tests/standalone.test.mjs tests/step-plan.test.mjs tests/inbox.test.mjs
       - run: docker compose -f deploy/compose.yaml config --quiet
       - run: docker compose -f deploy/compose.server.yaml config --quiet
+      - name: Validate Windows release helper syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE 'scripts/Build-OfficialReleaseWizard.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | Format-List; exit 1 }
       - run: python scripts/build_release.py
       - name: Upload source archive
         uses: actions/upload-artifact@v4

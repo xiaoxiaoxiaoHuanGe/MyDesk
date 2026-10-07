@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def build(output):
     output=Path(output)
     output.parent.mkdir(parents=True,exist_ok=True)
-    files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore')]
+    files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore','Build-OfficialRelease.cmd')]
     files.append(ROOT/'assets/mydesk-logo.png')
     files.extend((ROOT/'.github/workflows').glob('*.yml'))
     rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webp','.webmanifest'},

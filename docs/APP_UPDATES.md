@@ -10,6 +10,8 @@ FileProvider 仅暴露 `files/app-updates/`，授予系统安装器临时读取�
 
 ## 发布准备（维护者本地）
 
+不熟悉命令行时：在创建密钥的原 Windows 电脑和账号下，下载并解压 GitHub `main` 的 ZIP，双击根目录 `Build-OfficialRelease.cmd`。工具会让你选择原项目或解压后的 `release` 文件夹，自动寻找已有 SDK/JDK、解锁 DPAPI 密码、验证原签名指纹，保留本机 Firebase 配置，然后运行测试并构建。完成后自动打开 `dist`，将正式 APK 交给维护者发布即可。需要已有 Android SDK 36、Build Tools 36.0.0 和 JDK 17 至 23；找不到时会显示文件夹选择窗口。工具不会上传签名资料、生成或更换正式密钥，也不会修改系统 PowerShell 执行策略。缺少本地测试 CA 时，仅生成一次性测试 CA；它不会进入正式 APK。原电脑/原账号无法解锁时会停止。
+
 继续使用既有正式签名身份和 Windows DPAPI 密码：
 
 ```powershell
