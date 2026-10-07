@@ -225,11 +225,11 @@ class MainActivity: ComponentActivity() {
                             rename=settingsModel::renameDevice,changePassword={current,password->graph.perform {graph.changePassword(current,password)}},
                             error=if(settingsState.failed) settingsState.message else "",passwordError=state.message) }
                         item { NotificationSettings(graph,state,notify,exact,settings) }
-                        item { AppUpdateSettings(graph) }
                         item { DeskCard("通知接入") {TextButton({sourcesOpen=true}) {Text("管理通知来源")};TextButton({inboxOpen=true}) {Text("查看收件箱")}} }
                         item { WorkbenchSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "") }
                         item { IntegrationSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "",checkTask=settingsModel::checkGitHubTask,feedback=settingsState.message,checkService=settingsModel::checkService) }
                         item { BackupSettings(graph,settingsModel::reload,enabled=!state.busy && !settingsState.busy) }
+                        item { AppUpdateSettings(graph) }
                     }
                     page == 1 -> {
                         item { ReminderForm(state.busy,timezone) {title,time->command("reminder/create",buildJsonObject { put("title",title); put("time",time) }) } }

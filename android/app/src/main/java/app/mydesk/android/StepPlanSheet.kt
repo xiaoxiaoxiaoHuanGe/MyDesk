@@ -134,19 +134,18 @@ internal fun stepPresetSelection(plan: JsonObject): String {
                 random=preset.text("random_percent","0")=="10";interval=preset.text("interval_minutes");target=preset.text("target");daily=arrangement.text("daily")=="true";clock=arrangement.text("start_time","08:00");draftRevision=plan.text("revision");error=""
             },label={Text(preset.text("name"))},enabled=!busy)}
         }
-        Row(Modifier.fillMaxWidth().testTag("plan-name-row"),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().testTag("plan-name-row"),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.Bottom) {
             DeskTextField(name,{name=it;error=""},label={Text("预设名称")},enabled=!busy,singleLine=true,modifier=Modifier.weight(1f).testTag("plan-name"))
-            Surface(Modifier.weight(1f).testTag("plan-preview"),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                    val p=parsed.getOrNull()
-                    Text(if(p!=null) "预计 ${p.durationLabel} 分钟" else "预计耗时",style=MaterialTheme.typography.titleSmall)
-                    Text(if(p!=null) "${p.estimateLabel}" else "填入步数参数后显示",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(Modifier.weight(1f).height(56.dp).testTag("plan-preview"),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.padding(horizontal=10.dp,vertical=6.dp),verticalArrangement=Arrangement.Center) {
+                    Text("预计耗时",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(parsed.getOrNull()?.let {"${it.durationLabel} 分钟"} ?: "—",style=MaterialTheme.typography.bodyMedium)
                 }
             }
         }
         for(row in listOf(
             listOf(PlanField("start","起始步数",start,{start=it}),PlanField("target","终止步数",target,{target=it})),
-            listOf(PlanField("increment","基准增加步数",increment,{increment=it}),PlanField("interval","间隔时间（分钟）",interval,{interval=it})))) {
+            listOf(PlanField("increment","每次增加",increment,{increment=it}),PlanField("interval","间隔（分钟）",interval,{interval=it})))) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 row.forEach {field->DeskTextField(field.value,{field.setter(it);error=""},label={Text(field.label,style=MaterialTheme.typography.bodySmall)},singleLine=true,enabled=!busy,
                     keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.weight(1f).testTag("plan-${field.tag}"))}
@@ -156,8 +155,14 @@ internal fun stepPresetSelection(plan: JsonObject): String {
             Text("随机浮动 ±10%");Switch(random,{random=it;error=""},enabled=!busy&&supportsRandom,modifier=Modifier.testTag("plan-random"))
         }
         if(!supportsRandom) Text("随机功能需要升级服务器",style=MaterialTheme.typography.bodySmall)
-        parsed.getOrNull()?.let {p->if(random&&supportsRandom) Text("每次增加 ${p.low}～${p.high} 步；末次可能因 30000 封顶减少",style=MaterialTheme.typography.bodySmall)}
-        Text("计划间隔估算，排队与重试会增加实际耗时",style=MaterialTheme.typography.bodySmall)
+        parsed.getOrNull()?.let {p->
+            Column(Modifier.testTag("plan-summary"),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                val floating=random&&supportsRandom
+                Text(if(floating) "每次 +${p.low}–${p.high} 步 · 预计 ${p.minCount}–${p.maxCount} 次" else "每次 +${p.increment} 步 · 预计 ${p.count} 次",style=MaterialTheme.typography.bodySmall)
+                Text(if(floating) "最终约 ${p.target+1}–${minOf(p.target+p.high,30000)} 步" else "最终 ${p.final} 步",style=MaterialTheme.typography.bodySmall)
+                Text("上限 30000 步，耗时以实际为准",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {Text("每日重复");Switch(daily,{daily=it;error=""},enabled=!busy)}
         if(daily) {

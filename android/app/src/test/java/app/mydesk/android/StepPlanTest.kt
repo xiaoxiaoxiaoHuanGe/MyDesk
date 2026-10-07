@@ -81,7 +81,7 @@ class StepPlanTest {
         compose.onNodeWithTag("plan-random").assertIsOn()
         compose.onNodeWithText("旧预设").performClick()
         compose.onNodeWithTag("plan-random").performScrollTo().assertIsOff().performClick()
-        compose.onNodeWithText("每次增加 72～88 步；末次可能因 30000 封顶减少").assertExists()
+        compose.onNodeWithText("每次 +72–88 步",substring=true).assertExists()
         compose.onNodeWithText("保存配置").performScrollTo().performClick()
         compose.runOnIdle {assertEquals("10",sent.text("random_percent"))}
     }
