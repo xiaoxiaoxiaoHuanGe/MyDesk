@@ -16,7 +16,17 @@
       <span class="eyebrow">你的个人工作台</span>
       <h1 id="login-title">登录 MyDesk</h1>
       <p class="muted">在一个地方，照看重要的事。</p>
-      <form id="login-form">
+      <div class="login-methods" role="group" aria-label="登录方式">
+        <button id="use-qr" type="button" aria-pressed="true">App 扫码登录</button>
+        <button id="use-password" type="button" aria-pressed="false">账号密码登录</button>
+      </div>
+      <section id="qr-login" aria-label="App 扫码登录">
+        <div class="qr-frame"><img id="login-qr-image" width="224" height="224" alt="MyDesk 登录二维码" hidden></div>
+        <p id="qr-login-status" role="status" aria-live="polite">正在生成二维码…</p>
+        <p class="qr-help">打开已登录的 MyDesk App，在设置的「本机设备」旁点击扫一扫。</p>
+        <button id="refresh-qr" type="button" hidden>刷新二维码</button>
+      </section>
+      <form id="login-form" hidden>
         <label for="username">用户名</label><input id="username" name="username" autocomplete="username" required>
         <label for="password">密码</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" required><button id="show-password" type="button" aria-pressed="false">显示</button></div>
         <p id="login-error" role="alert"></p>

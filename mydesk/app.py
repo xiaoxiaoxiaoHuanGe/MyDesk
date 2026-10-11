@@ -3,9 +3,11 @@ import asyncio
 import hmac
 import json
 import logging
+import re
 import time
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import urlencode
 
 from aiohttp import ClientSession, web
 
@@ -18,6 +20,7 @@ from .mobile import Mobile,MobileConflict,DeviceRemoved
 from .fcm import Fcm
 from .native_notifications import NativeNotifications
 from .backup import Backups, selected, MAX_FILE_BYTES
+from .qr_login import browser_label,qr_image
 
 ROOT=Path(__file__).resolve().parents[1]
 STATE=web.AppKey('mydesk',dict)
@@ -43,6 +46,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     backup_lock=asyncio.Lock()
     sockets={}
     failures={}
+    qr_attempts={}
 
     @web.middleware
     async def guard(request,handler):
@@ -54,7 +58,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
             origin=request.headers.get('Origin')
             if (request.method not in ('GET','HEAD') or request.path=='/api/ws') and origin and origin!=str(request.url.origin()):
                 raise web.HTTPForbidden(text='请求来源无效')
-            private=request.path.startswith('/api/') and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/')
+            qr_public=(request.path=='/api/qr-login' and request.method=='POST') or (request.method=='GET' and re.fullmatch(r'/api/qr-login/[a-f0-9]{32}',request.path))
+            private=request.path.startswith('/api/') and not qr_public and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/')
             if private:
                 session=await asyncio.to_thread(auth.session,request.cookies.get(COOKIE))
                 if not session:
@@ -62,6 +67,9 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
                 request['session']=session
                 if request.method not in ('GET','HEAD') and not hmac.compare_digest(request.headers.get('X-MyDesk-CSRF',''),session['csrf']):
                     raise web.HTTPForbidden(text='会话验证失败，请重新登录')
+                if session['expires'] is not None and request.headers.get('X-MyDesk-Client')=='android':
+                    await asyncio.to_thread(auth.persist_session,session['id'])
+                    request['session']={**session,'expires':None}
             response=await handler(request)
         except web.HTTPException as exc:
             response=web.json_response({'error':exc.text if exc.status!=413 else '请求内容过大'},status=exc.status)
@@ -100,7 +108,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
         if len(attempts)>=5:
             raise web.HTTPTooManyRequests(text='登录尝试过多，请 5 分钟后重试')
         data=await request.json()
-        result=await asyncio.to_thread(auth.login,data.get('username'),data.get('password'))
+        persistent=data.get('client')=='android'
+        result=await asyncio.to_thread(auth.login,data.get('username'),data.get('password'),persistent)
         if not result:
             if len(failures)>=2048:
                 failures.clear()
@@ -109,8 +118,48 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
         failures.pop(peer,None)
         token,csrf=result
         response=web.json_response({'username':data['username'],'csrf':csrf})
-        response.set_cookie(COOKIE,token,httponly=True,secure=request.secure,samesite='Strict',max_age=7*86400,path='/')
+        response.set_cookie(COOKIE,token,httponly=True,secure=request.secure,samesite='Strict',max_age=None if persistent else 7*86400,path='/')
         return response
+
+    async def qr_start(request):
+        peer=request.remote or 'unknown'
+        now=time.monotonic()
+        attempts=[value for value in qr_attempts.get(peer,[]) if now-value<60]
+        if len(attempts)>=10:
+            raise web.HTTPTooManyRequests(text='二维码刷新过于频繁，请稍后重试')
+        if len(qr_attempts)>=2048:qr_attempts.clear()
+        qr_attempts[peer]=attempts+[now]
+        identifier,token,browser_secret=await asyncio.to_thread(auth.start_qr,browser_label(request.headers.get('User-Agent','')))
+        uri='mydesk://login?'+urlencode({'server':str(request.url.origin()),'id':identifier,'token':token})
+        response=web.json_response({'id':identifier,'uri':uri,'image':await asyncio.to_thread(qr_image,uri),'expires_in':120})
+        response.set_cookie('mydesk_qr_'+identifier,browser_secret,httponly=True,secure=request.secure,samesite='Strict',max_age=120,path='/api/qr-login')
+        return response
+
+    async def qr_poll(request):
+        identifier=request.match_info['identifier']
+        cookie='mydesk_qr_'+identifier
+        try:status,result=await asyncio.to_thread(auth.poll_qr,identifier,request.cookies.get(cookie))
+        except PermissionError as exc:raise web.HTTPForbidden(text=str(exc)) from None
+        data={'status':status}
+        if result:data.update(username=result[0],csrf=result[2])
+        response=web.json_response(data)
+        if result:
+            response.set_cookie(COOKIE,result[1],httponly=True,secure=request.secure,samesite='Strict',max_age=7*86400,path='/')
+        if status in ('approved','expired','rejected','used'):
+            response.del_cookie(cookie,path='/api/qr-login')
+        return response
+
+    async def qr_authorize(request):
+        if request['session']['expires'] is not None:
+            raise web.HTTPForbidden(text='请使用已登录的 MyDesk App 扫码')
+        data=await request.json()
+        try:
+            if request.path.endswith('/preview'):
+                return web.json_response(await asyncio.to_thread(auth.preview_qr,data.get('id'),data.get('token'),request['session']))
+            confirmed=await asyncio.to_thread(auth.confirm_qr,data.get('id'),data.get('token'),request['session'],data.get('approve'))
+        except ValueError as exc:raise web.HTTPBadRequest(text=str(exc)) from None
+        if not confirmed:raise web.HTTPConflict(text='请先扫描并查看待登录电脑')
+        return web.json_response({'confirmed':True})
 
     async def session(request):
         return web.json_response({'username':request['session']['username'],'csrf':request['session']['csrf']})
@@ -294,10 +343,16 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
             native=app[STATE]['native_notifications']
             return web.json_response({'devices':await asyncio.to_thread(mobile.devices),'server_id':native.server_id,'push_available':native.sender is not None})
         if request.method=='DELETE':
+            session_id=await asyncio.to_thread(mobile.device_session,request.match_info['device'])
+            if session_id:
+                await asyncio.to_thread(auth.revoke,session_id)
+                await close_sessions(session_id)
             await asyncio.to_thread(mobile.remove,device_id=request.match_info['device'])
             return web.json_response({'removed':True})
         data=await request.json()
-        return web.json_response(await asyncio.to_thread(mobile.register,data,request['session']['id']))
+        result=await asyncio.to_thread(mobile.register,data,request['session']['id'])
+        await asyncio.to_thread(auth.persist_session,request['session']['id'])
+        return web.json_response(result)
 
     async def mobile_push(request):
         try:result=await asyncio.to_thread(app[STATE]['mobile'].update_push,await request.json(),request['session']['id'])
@@ -346,7 +401,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
                 sender=None
                 logging.getLogger('mydesk').warning('原生推送配置无效；其余 MyDesk 功能继续运行')
             def session_active(session_id):
-                with auth.connect() as db:return db.execute('SELECT 1 FROM sessions WHERE id=? AND expires>?',(session_id,time.time())).fetchone() is not None
+                return auth.session_active(session_id)
             native=NativeNotifications(mobile,sender,session_active)
             async def native_notify(target,payload):
                 raise ValueError('原生即时推送尚未配置')
@@ -372,6 +427,10 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     app.on_shutdown.append(shutdown)
     app.router.add_get('/health',health)
     app.router.add_post('/api/login',login)
+    app.router.add_post('/api/qr-login',qr_start)
+    app.router.add_post('/api/qr-login/preview',qr_authorize)
+    app.router.add_post('/api/qr-login/confirm',qr_authorize)
+    app.router.add_get('/api/qr-login/{identifier:[a-f0-9]{32}}',qr_poll)
     app.router.add_get('/api/session',session)
     app.router.add_post('/api/logout',logout)
     app.router.add_post('/api/password',password)

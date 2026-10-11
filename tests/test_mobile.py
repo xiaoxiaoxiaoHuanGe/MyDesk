@@ -63,7 +63,9 @@ class MobileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.post('/api/mobile/device-name',json={'id':'a'*32,'name':'手机'})).status,403)
         await self.client.delete('/api/mobile/devices/'+'a'*32,headers=self.headers)
         response=await self.client.post('/api/mobile/device-name',headers=self.headers,json={'id':'a'*32,'name':'手机'})
-        self.assertEqual(response.status,403)
+        self.assertEqual(response.status,401)
+        access=json.loads((self.directory/'local-access.json').read_text(encoding='utf-8'))
+        await self.client.post('/api/login',json=access)
         self.assertEqual((await (await self.client.get('/api/mobile/devices')).json())['devices'],[])
 
     async def test_device_needs_authentication_and_never_returns_push_token(self):
@@ -104,11 +106,11 @@ class MobileTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_device_removal_prevents_later_operations(self):
         await self.register()
-        self.assertEqual((await self.client.delete('/api/mobile/devices/'+'a'*32,headers=self.headers)).status,200)
         reminder=await self.reminder()
+        self.assertEqual((await self.client.delete('/api/mobile/devices/'+'a'*32,headers=self.headers)).status,200)
         data={'operation_id':'e'*32,'device_id':'a'*32,'id':reminder['id'],'revision':reminder['revision'],
               'action':'complete','occurred_at':datetime.now(timezone.utc).isoformat()}
-        self.assertEqual((await self.client.post('/api/mobile/reminder-action',headers=self.headers,json=data)).status,403)
+        self.assertEqual((await self.client.post('/api/mobile/reminder-action',headers=self.headers,json=data)).status,401)
 
     async def test_registration_without_token_preserves_existing_push_registration(self):
         secret='native-token:'+'x'*100
@@ -131,7 +133,9 @@ class MobileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status,200)
         self.assertTrue((await response.json())['push_registered'])
         await self.client.delete('/api/mobile/devices/'+'a'*32,headers=self.headers)
-        self.assertEqual((await self.client.post('/api/mobile/push',headers=self.headers,json=body)).status,403)
+        self.assertEqual((await self.client.post('/api/mobile/push',headers=self.headers,json=body)).status,401)
+        access=json.loads((self.directory/'local-access.json').read_text(encoding='utf-8'))
+        await self.client.post('/api/login',json=access)
         response=await self.client.get('/api/mobile/devices')
         self.assertEqual((await response.json())['devices'],[])
 

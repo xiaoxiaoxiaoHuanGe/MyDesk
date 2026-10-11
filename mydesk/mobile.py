@@ -71,6 +71,11 @@ class Mobile:
             db.execute('UPDATE native_devices SET push_token=?,notifications_enabled=? WHERE id=? AND session_id=?',(token,int(enabled),device_id,session_id))
         return {'id':device_id,'push_registered':bool(token),'notifications_enabled':enabled}
 
+    def device_session(self, device_id):
+        with self.desk.connect() as db:
+            row=db.execute('SELECT session_id FROM native_devices WHERE id=?',(self.identifier(device_id),)).fetchone()
+            return row['session_id'] if row else None
+
     def remove(self,device_id=None,session_id=None):
         with self.desk.connect() as db:
             if device_id is not None:db.execute('DELETE FROM native_devices WHERE id=?',(self.identifier(device_id),))

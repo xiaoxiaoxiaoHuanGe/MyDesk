@@ -159,6 +159,15 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         authorized {repo.renameDevice(value)}
         prefs.deviceName(value)
     }
+    suspend fun previewQrLogin(raw: String): QrLoginPreview=authorized {
+        ready.await()
+        (client ?: error("请先登录")).previewQrLogin(raw)
+    }
+    suspend fun confirmQrLogin(code: QrLoginCode,approve: Boolean)=authorized {
+        ready.await()
+        (client ?: error("请先登录")).confirmQrLogin(code,approve)
+        mutable.update {it.copy(message=if(approve) "已允许电脑登录" else "已取消电脑登录")}
+    }
     suspend fun changePassword(current: String,password: String) {
         ready.await()
         (client ?: error("请先登录")).request("/api/password","POST",buildJsonObject {put("current_password",current);put("new_password",password)})

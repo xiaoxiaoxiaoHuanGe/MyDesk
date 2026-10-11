@@ -35,6 +35,7 @@ internal object SettingsGlyphs {
     val Password=glyph("Password","M14 3C10.7 3 8 5.7 8 9C8 10 8.2 10.8 8.6 11.6L3 17.2V21H7V18H10V15L12.4 12.6C13 12.9 13.5 13 14 13C17.3 13 20 10.8 20 8C20 5.2 17.3 3 14 3Z M15 7H15.01")
     val Logout=glyph("Logout","M10 3H5V21H10 M14 3H20V21H14 M3 12H15 M11 8L15 12L11 16")
     val Phone=glyph("Phone","M7 2H17Q19 2 19 4V20Q19 22 17 22H7Q5 22 5 20V4Q5 2 7 2Z M11 18H13")
+    val Scan=glyph("Scan","M8 3H3V8 M16 3H21V8 M3 16V21H8 M21 16V21H16 M7 12H17 M7 8V9 M17 8V9 M7 15V16 M17 15V16")
     val Bell=glyph("Bell","M18 8C18 4.7 15.3 2 12 2C8.7 2 6 4.7 6 8V14L4 17H20L18 14Z M10 21H14")
     val Clock=glyph("Clock","M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12 M12 6V12L16 14")
     val Network=glyph("Network","M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12 M2 12H22 M4 6H20 M4 18H20 M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
@@ -62,7 +63,7 @@ internal object SettingsGlyphs {
 
 @Composable internal fun AccountSettingsCard(server: String,deviceName: String,busy: Boolean,syncing: Boolean,
     sync: ()->Unit,logout: ()->Unit,rename: (String,()->Unit)->Unit,changePassword: (String,String)->Unit,
-    error: String="",passwordError: String="") {
+    error: String="",passwordError: String="",scan: ()->Unit={}) {
     DeskCard("") {
         val fontScale=LocalDensity.current.fontScale
         val actions: @Composable ()->Unit={
@@ -86,7 +87,7 @@ internal object SettingsGlyphs {
         Text(server,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         if(error.isNotEmpty()) Text(error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-        DeviceNameSettings(deviceName,busy || syncing,rename,error,embedded=true)
+        DeviceNameSettings(deviceName,busy || syncing,rename,error,embedded=true,scan=scan)
     }
 }
 

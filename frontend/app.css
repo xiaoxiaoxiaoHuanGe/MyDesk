@@ -73,6 +73,15 @@ button,input,select,textarea{font-family:inherit}
 .login-card h1{font-size:27px;font-weight:550;letter-spacing:-.8px;margin:8px 0}
 .login-card>.muted{font-size:14px}
 .login-card form{margin-top:28px}
+.login-methods{display:flex;gap:8px;margin:24px 0 20px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.login-methods button{flex:1;min-height:44px;padding:8px 4px;font-size:14px;color:var(--muted);border-radius:12px}
+.login-methods button[aria-pressed=true]{color:var(--accent);background:var(--low)}
+#qr-login{text-align:center}
+.qr-frame{width:224px;height:224px;max-width:100%;margin:0 auto;border-radius:16px;background:#fff;display:grid;place-items:center;overflow:hidden}
+.qr-frame img{width:100%;height:auto;display:block}
+#qr-login-status{font-size:14px;min-height:24px;margin:16px 0 8px}
+.qr-help{font-size:12px;color:var(--muted);line-height:1.7;margin:0}
+#refresh-qr{margin-top:12px;min-height:44px;padding:10px 18px;background:var(--low);border-radius:12px}
 .password-field{display:flex;background:var(--low);border:1px solid var(--border);border-radius:14px}
 .password-field input{border:0;background:transparent}
 .password-field button{flex-shrink:0;color:var(--muted);font-size:12px}
