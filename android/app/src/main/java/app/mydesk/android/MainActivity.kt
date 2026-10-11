@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.serialization.json.*
@@ -48,6 +49,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class MainActivity: ComponentActivity() {
+    private val localIpModel by lazy {ViewModelProvider(this)[LocalIpViewModel::class.java]}
     private var notificationLaunch by mutableStateOf<NotificationLaunch?>(null)
     private var launchSequence=0L
     private fun readNotification(intent: Intent) {
@@ -60,6 +62,7 @@ class MainActivity: ComponentActivity() {
         if(savedInstanceState == null || !savedInstanceState.getBoolean("notification_handled",true)) readNotification(intent)
         setContent {
             val state by graph.state.collectAsStateWithLifecycle()
+            val localIp by localIpModel.state.collectAsStateWithLifecycle()
             val dark=state.theme == "dark" || (state.theme == "system" && isSystemInDarkTheme())
             val colors=deskColors(dark)
             SideEffect {
@@ -71,7 +74,7 @@ class MainActivity: ComponentActivity() {
             MaterialTheme(colorScheme=colors,shapes=deskShapes,typography=deskTypography) {
                 Surface(Modifier.fillMaxSize(),color=colors.background) {
                     if (!state.authenticated) LoginScreen(state) { server,user,password -> graph.perform { graph.login(server,user,password) } }
-                    else Workbench(state,graph,notify={ if (Build.VERSION.SDK_INT >= 33) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else openNotifications() },
+                    else Workbench(state,graph,localIp,localIpModel::refresh,notify={ if (Build.VERSION.SDK_INT >= 33) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else openNotifications() },
                         exact={ if(Build.VERSION.SDK_INT >= 31) startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:$packageName"))) },
                         settings={openNotifications()},open={ url -> openUrl(url) },notificationLaunch=notificationLaunch,onNotificationHandled={notificationLaunch=null})
                 }
@@ -80,8 +83,8 @@ class MainActivity: ComponentActivity() {
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); readNotification(intent) }
     override fun onSaveInstanceState(outState: Bundle) {outState.putBoolean("notification_handled",notificationLaunch == null);super.onSaveInstanceState(outState)}
-    override fun onStart() { super.onStart(); graph.startForeground(); graph.perform { graph.ready.await(); graph.scheduler.apply(graph.store.visible()) } }
-    override fun onStop() { graph.stopForeground(); super.onStop() }
+    override fun onStart() { super.onStart(); localIpModel.enter(); graph.startForeground(); graph.perform { graph.ready.await(); graph.scheduler.apply(graph.store.visible()) } }
+    override fun onStop() { if(!isChangingConfigurations) localIpModel.leave(); graph.stopForeground(); super.onStop() }
     private fun openNotifications() { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName)) }
     private fun openUrl(url: String) { val uri=Uri.parse(url); if (uri.scheme in setOf("https","http")) startActivity(Intent(Intent.ACTION_VIEW,uri)) }
 }
@@ -100,7 +103,7 @@ class MainActivity: ComponentActivity() {
     }
 }
 
-@Composable private fun Workbench(state: HomeState,graph: AppGraph,notify: ()->Unit,exact: ()->Unit,settings: ()->Unit,open: (String)->Unit,notificationLaunch: NotificationLaunch?,onNotificationHandled: ()->Unit) {
+@Composable private fun Workbench(state: HomeState,graph: AppGraph,localIp: LocalIpState,refreshLocalIp: ()->Unit,notify: ()->Unit,exact: ()->Unit,settings: ()->Unit,open: (String)->Unit,notificationLaunch: NotificationLaunch?,onNotificationHandled: ()->Unit) {
     val pagerState=rememberPagerState(pageCount={4})
     val tab=pagerState.settledPage
     val pageScope=rememberCoroutineScope()
@@ -252,6 +255,7 @@ class MainActivity: ComponentActivity() {
                         item { WorkbenchTaskCard(snapshot.rows("tasks"),timezone,{businessDetail=NotificationSection.TASKS to it},{historyTask=null;history=true}) }
                         item { ServerCard(snapshot,timezone) }
                         item { NetworkCard(snapshot,timezone) }
+                        item { LocalIpCard(localIp,timezone,refreshLocalIp) }
                     }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
