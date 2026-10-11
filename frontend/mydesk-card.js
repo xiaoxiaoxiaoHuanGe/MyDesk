@@ -6,8 +6,8 @@ import {planSummary,openStepPlan} from './step-plan.js';
 
 const stylesheet=new URL('./mydesk.css',import.meta.url).href;
 const controllers=new WeakMap();
-const modes=['attention','wxstep','mail','automation','server','network'];
-const meta={reminder:['待办提醒','bell'],automation:['自动任务','activity'],server:['服务器','server'],network:['网络连通性','network'],wxstep:['微信步数','steps'],mail:['最近邮件','mail']};
+const modes=['attention','wxstep','mail','inbox','automation','server','network'];
+const meta={inbox:['最近通知','bell'],reminder:['待办提醒','bell'],automation:['自动任务','activity'],server:['服务器','server'],network:['网络连通性','network'],wxstep:['微信步数','steps'],mail:['最近邮件','mail']};
 const badge=status=>`<span class="badge ${e(status)}"><span class="dot"></span>${e(statusLabel(status))}</span>`;
 const empty=(title,detail='')=>`<div class="empty"><strong>${e(title)}</strong>${detail?`<p>${e(detail)}</p>`:''}</div>`;
 class DeskController {
@@ -41,7 +41,7 @@ class MyDeskCard extends HTMLElement {
       this._shell=mode;
       if(mode==='dashboard'){
         const grid=this.shadowRoot.querySelector('.grid');grid.innerHTML='<div class="column primary-column"></div><div class="column secondary-column"></div>';
-        this.childrenCards=modes.map((childMode,index)=>{const card=document.createElement('mydesk-card');card.className=`tile-${childMode}`;card.setConfig({mode:childMode});grid.querySelector(index<3?'.primary-column':'.secondary-column').append(card);if(this._client)card.client=this._client;return card;});
+        this.childrenCards=modes.map((childMode,index)=>{const card=document.createElement('mydesk-card');card.className=`tile-${childMode}`;card.setConfig({mode:childMode});grid.querySelector(index<4?'.primary-column':'.secondary-column').append(card);if(this._client)card.client=this._client;return card;});
       }
       this.bind();
     }
@@ -63,6 +63,7 @@ class MyDeskCard extends HTMLElement {
         if(action==='toggle-time'){this.timerMode=this.timerMode==='date'?'countdown':'date';button.textContent=this.timerMode==='date'?'切换倒计时':'切换日期';this.mountTime();}
         else if(['complete','cancel','snooze'].includes(action)){const revision=button.dataset.revision||this._state.reminders.find(r=>r.id===id)?.revision;if(!revision)throw new Error('提醒已处理，请刷新');await this.action('reminder/action',{id,action,revision,...(minutes?{minutes:Number(minutes)}:{})});this.shadowRoot.querySelector('dialog')?.close();this.message(action==='snooze'?'提醒已延后':'提醒已处理');}
         else if(action==='attention-open'){const old=this._state.attention[Number(button.dataset.index)];const latest=await this.controller.command('snapshot');this.controller.state=latest;this.controller.broadcast();const current=latest.attention.find(x=>x.kind===old.kind&&x.id===old.id);if(!current){this.message('该事项已处理，已更新列表');return;}this.dispatchEvent(new CustomEvent('mydesk-navigate',{bubbles:true,composed:true,detail:current.destination}));}
+        else if(action==='inbox')this.dispatchEvent(new CustomEvent('mydesk-navigate',{bubbles:true,composed:true,detail:{type:'inbox',id:id||''}}));
         else if(action==='step-plan'||action==='step-records')openStepPlan(this.controller,v=>this.date(v,true),action==='step-records');
         else if(action==='step-stop'){await this.controller.command('wxstep/plan/stop',{run_id:this._state.wxstep_plan.run.id});this.message('已终止本轮，已发出的提交继续跟踪');}
         else if(action==='reminder-detail')this.showReminder(id);
@@ -99,6 +100,7 @@ class MyDeskCard extends HTMLElement {
   wxstepContent(){return this.wxstepResultContent()+planSummary(this._state.wxstep_plan,v=>this.date(v,true));}
   wxstepResultContent(){const job=this._state.wxstep;if(!this._state.configured.github)return empty('微信步数尚未接入','在设置的 GitHub 任务中单独配置。');return job?`<div class="job-result"><span class="hint">最近提交</span><div><strong>${Number(job.steps).toLocaleString('zh-CN')}<small> 步</small></strong><span class="badge ${e(job.status)}">${e(job.status==='success'?'提交成功':statusLabel(job.status))}</span></div>${['failed','tracking_error'].includes(job.status)?`<p class="hint">${e(job.message)}</p>`:''}${job.status==='tracking_error'?'<button class="text-button" data-action="release">检查后结束本地跟踪</button>':''}</div>`:'<p class="hint">还没有提交记录</p>';}
   renderMailFilter(){const accounts=this._state.feeds.mail?.data?.accounts||[];if(this.mailAccount&&!accounts.some(a=>a.id===this.mailAccount)){this.mailAccount='';this._contentHtml=null;this.render();return;}const html=`<select aria-label="选择邮箱"><option value="">全部邮箱</option>${accounts.map(a=>`<option value="${e(a.id)}" ${a.id===this.mailAccount?'selected':''}>${e(a.name)}</option>`).join('')}</select>`;const node=this.shadowRoot.querySelector('.mail-filter');if(html!==this._filterHtml){node.innerHTML=html;this._filterHtml=html;node.querySelector('select').onchange=event=>{this.mailAccount=event.target.value;this.render();};}}
+  inboxContent(){const inbox=this._state.inbox;if(!inbox?.supported)return '<p class="hint">通知收件箱需要升级服务器</p>';return `<p>${Number(inbox.unread)||0} 未读</p>${(inbox.recent||[]).map(row=>`<article class="mail-row"><button class="text-button" data-action="inbox" data-id="${e(row.id)}"><strong>${e(row.source_name)} · ${e(row.title)}${row.read_at?'':' · 未读'}</strong><p>${e(row.summary)}</p><small>${e(this.date(row.received_at,true))}</small></button></article>`).join('')||empty('暂无通知')}<button class="secondary" data-action="inbox">查看全部</button>`;}
   mailContent(){const feed=this._state.feeds.mail;if(!this._state.configured.mail)return empty('还没有接入邮箱','添加多个 Gmail，在这里集中查看。');if(!feed||feed.data.error)return empty(feed?.data.error||'等待邮件同步');const data=feed.data,accounts=data.accounts||[],selected=accounts.find(a=>a.id===this.mailAccount),failures=(selected?[selected]:accounts).filter(a=>a.error),items=selectMail(data,this.mailAccount);return `<div class="mail-meta"><span>${selected?e(selected.name):'全部邮箱 · 最近 3 封'}</span><span>${e(selected?.unread??data.unread??0)} 未读${!selected&&data.unread_complete===false?' · 部分邮箱':''}</span></div>${failures.map(a=>`<p class="hint error">${e(a.name)}：${e(a.error)}</p>`).join('')}${items.map(mail=>`<article class="mail-row"><div class="mail-row-top"><span class="mail-account">${e(mail.account_name||selected?.name||'Gmail')}${mail.unread?'<i class="unread-dot" aria-label="未读"></i>':''}</span><time>${this.date(mail.received_at,true)}</time></div><strong>${e(mail.subject||'（无主题）')}</strong><div class="mail-row-bottom"><span>${e(mail.sender)}</span><small>${e(mail.account_email||selected?.username||accounts.find(a=>a.id===mail.account_id)?.username||'')}</small></div></article>`).join('')||empty(failures.length?'等待邮箱恢复同步':'收件箱暂无邮件')}${this.feedTime(feed)}`;}
   feedTime(feed){return `<p class="feed-time">${feed.stale?'数据已过期 · ':'更新于 '}${this.date(feed.updated_at)}</p>`;}
   dialog(title,body){return openDialog(title,body,{root:this.shadowRoot});}

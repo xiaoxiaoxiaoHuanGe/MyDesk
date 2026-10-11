@@ -2,6 +2,8 @@ package app.mydesk.android
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -11,14 +13,25 @@ import java.util.UUID
 
 class NativeStore(context: Context, memory: Boolean = false) {
     private val db=if (memory) Room.inMemoryDatabaseBuilder(context,DeskDatabase::class.java).build()
-                   else Room.databaseBuilder(context,DeskDatabase::class.java,"mydesk.db").build()
+                   else Room.databaseBuilder(context,DeskDatabase::class.java,"mydesk.db").addMigrations(object: Migration(1,2) {
+                       override fun migrate(db: SupportSQLiteDatabase) {
+                           db.execSQL("CREATE TABLE IF NOT EXISTS inbox_read (operationId TEXT NOT NULL PRIMARY KEY, json TEXT NOT NULL)")
+                           db.execSQL("CREATE TABLE IF NOT EXISTS inbox_cache (id TEXT NOT NULL PRIMARY KEY, seq INTEGER NOT NULL, json TEXT NOT NULL)")
+                       }
+                   }).build()
     private val dao=db.desk()
-    val state=combine(dao.watchSnapshot(),dao.watchActions(),dao.watchReminders()) { snapshot, actions, reminders ->
-        CacheState(snapshot?.let { deskJson.parseToJsonElement(it.json).jsonObject }, ReminderPolicy.visible(reminders.map { deskJson.decodeFromString(it.json) }, actions.map { deskJson.decodeFromString(it.json) }), actions.size)
+    val state=combine(dao.watchSnapshot(),dao.watchActions(),dao.watchReminders(),dao.watchInboxReads()) { snapshot, actions, reminders, reads ->
+        CacheState(snapshot?.let {applyInboxReads(deskJson.parseToJsonElement(it.json).jsonObject,reads.map {row->deskJson.parseToJsonElement(row.json).jsonObject})}, ReminderPolicy.visible(reminders.map { deskJson.decodeFromString(it.json) }, actions.map { deskJson.decodeFromString(it.json) }), actions.size+reads.size)
     }
     suspend fun accept(snapshot: String) = db.withTransaction {
         val data=deskJson.parseToJsonElement(snapshot).jsonObject
         val reminders=deskJson.decodeFromJsonElement<List<Reminder>>(data["reminders"] ?: JsonArray(emptyList()))
+        for(row in data.obj("inbox").rows("recent")) {
+            val old=dao.inboxMessage(row.text("id"))?.let {deskJson.parseToJsonElement(it.json).jsonObject}
+            val merged=buildJsonObject {old?.forEach {(k,v)->put(k,v)};row.forEach {(k,v)->put(k,v)}}
+            dao.inboxCache(InboxCacheRow(row.text("id"),row.text("seq").toLong(),merged.toString()))
+        }
+        dao.trimInbox()
         dao.snapshot(SnapshotRow(json=snapshot))
         dao.clearReminders()
         dao.reminders(reminders.map { ReminderRow(it.id,deskJson.encodeToString(it)) })
@@ -42,19 +55,56 @@ class NativeStore(context: Context, memory: Boolean = false) {
     suspend fun conflict(id: String) = db.withTransaction {
         pending().filter { it.reminderId == id }.forEach { dao.deleteAction(it.operationId) }
     }
+    suspend fun enqueueInboxRead(payload: JsonObject)=db.withTransaction {
+        dao.inboxRead(InboxReadRow(UUID.randomUUID().toString(),payload.toString()))
+    }
+    suspend fun inboxPending()=dao.inboxReads()
+    suspend fun inboxReceipt(id: String) {dao.deleteInboxRead(id)}
+    suspend fun cacheInbox(rows: List<JsonObject>)=db.withTransaction {
+        rows.forEach {row->dao.inboxCache(InboxCacheRow(row.text("id"),row.text("seq").toLong(),row.toString()))}
+        dao.trimInbox()
+    }
+    suspend fun inboxCache(): List<JsonObject> = dao.inboxCache().map {deskJson.parseToJsonElement(it.json).jsonObject}
+    suspend fun inboxMessage(id: String): JsonObject?=dao.inboxMessage(id)?.let {deskJson.parseToJsonElement(it.json).jsonObject}
     suspend fun delivered(id: String): String? = dao.delivery(id)?.revision
     suspend fun markDelivered(id: String, revision: String) = dao.delivery(DeliveryRow(id,revision))
-    suspend fun clear() = db.withTransaction { dao.clearActions(); dao.clearReminders(); dao.clearSnapshot(); dao.clearDeliveries() }
+    suspend fun clear() = db.withTransaction { dao.clearActions(); dao.clearReminders(); dao.clearSnapshot(); dao.clearDeliveries();dao.clearInboxReads();dao.clearInboxCache() }
     fun close() = db.close()
 }
 
+internal fun applyInboxReads(snapshot: JsonObject,reads: List<JsonObject>): JsonObject {
+    if(reads.isEmpty())return snapshot
+    val inbox=snapshot.obj("inbox");val latest=inbox.text("latest_seq","0").toLongOrNull() ?: 0
+    val all=reads.any {it["through_seq"]?.jsonPrimitive?.longOrNull?.let {seq->seq>=latest}==true}
+    val changed=inbox.rows("recent").count {row->row.text("read_at")=="null"&&reads.any {inboxReadMatches(row,it)}}
+    return buildJsonObject {
+        snapshot.forEach {(k,v)->put(k,v)}
+        put("inbox",buildJsonObject {
+            inbox.forEach {(k,v)->put(k,v)}
+            put("unread",if(all) 0 else ((inbox.text("unread","0").toIntOrNull() ?: 0)-changed).coerceAtLeast(0))
+            put("recent",JsonArray(inbox.rows("recent").map {row->if(reads.any {inboxReadMatches(row,it)}) buildJsonObject {row.forEach {(k,v)->put(k,v)};put("read_at","pending")} else row}))
+        })
+    }
+}
 data class CacheState(val snapshot: JsonObject?,val reminders: List<Reminder>,val queued: Int)
 @Entity(tableName="snapshot") data class SnapshotRow(@PrimaryKey val id: Int=1,val json: String)
 @Entity(tableName="reminders") data class ReminderRow(@PrimaryKey val id: String,val json: String)
 @Entity(tableName="outbox",indices=[Index(value=["operationId"],unique=true)])
 data class ActionRow(@PrimaryKey(autoGenerate=true) val sequence: Long=0,val operationId: String,val json: String)
 @Entity(tableName="deliveries") data class DeliveryRow(@PrimaryKey val id: String,val revision: String)
+@Entity(tableName="inbox_read") data class InboxReadRow(@PrimaryKey val operationId: String,val json: String)
+@Entity(tableName="inbox_cache") data class InboxCacheRow(@PrimaryKey val id: String,val seq: Long,val json: String)
 @Dao interface DeskDao {
+    @Query("SELECT * FROM inbox_read ORDER BY rowid") fun watchInboxReads(): Flow<List<InboxReadRow>>
+    @Query("SELECT * FROM inbox_read ORDER BY rowid") suspend fun inboxReads(): List<InboxReadRow>
+    @Insert suspend fun inboxRead(row: InboxReadRow)
+    @Query("DELETE FROM inbox_read WHERE operationId=:id") suspend fun deleteInboxRead(id: String)
+    @Query("DELETE FROM inbox_read") suspend fun clearInboxReads()
+    @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun inboxCache(row: InboxCacheRow)
+    @Query("SELECT * FROM inbox_cache ORDER BY seq DESC") suspend fun inboxCache(): List<InboxCacheRow>
+    @Query("SELECT * FROM inbox_cache WHERE id=:id") suspend fun inboxMessage(id: String): InboxCacheRow?
+    @Query("DELETE FROM inbox_cache WHERE seq IN (SELECT seq FROM inbox_cache ORDER BY seq DESC LIMIT -1 OFFSET 10000)") suspend fun trimInbox()
+    @Query("DELETE FROM inbox_cache") suspend fun clearInboxCache()
     @Query("SELECT * FROM snapshot WHERE id=1") fun watchSnapshot(): Flow<SnapshotRow?>
     @Query("SELECT * FROM outbox ORDER BY sequence") fun watchActions(): Flow<List<ActionRow>>
     @Query("SELECT * FROM reminders") fun watchReminders(): Flow<List<ReminderRow>>
@@ -72,5 +122,5 @@ data class ActionRow(@PrimaryKey(autoGenerate=true) val sequence: Long=0,val ope
     @Query("DELETE FROM snapshot") suspend fun clearSnapshot()
     @Query("DELETE FROM deliveries") suspend fun clearDeliveries()
 }
-@Database(entities=[SnapshotRow::class,ReminderRow::class,ActionRow::class,DeliveryRow::class],version=1,exportSchema=false)
+@Database(entities=[SnapshotRow::class,ReminderRow::class,ActionRow::class,DeliveryRow::class,InboxReadRow::class,InboxCacheRow::class],version=2,exportSchema=false)
 abstract class DeskDatabase: RoomDatabase() { abstract fun desk(): DeskDao }

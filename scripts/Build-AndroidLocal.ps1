@@ -31,6 +31,9 @@ try {
 } finally { Pop-Location }
 $outputDirectory = Join-Path $projectRoot 'dist'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-$output = Join-Path $outputDirectory 'MyDesk-1.2.1-local-debug.apk'
+$buildMetadata = Get-Content -Raw -LiteralPath (Join-Path $androidRoot 'app/build/outputs/apk/debug/output-metadata.json') | ConvertFrom-Json
+$builtVersion = $buildMetadata.elements[0].versionName
+if (!$builtVersion -or $builtVersion -notmatch '^[A-Za-z0-9._-]+$') { throw 'INVALID_BUILD_VERSION_NAME' }
+$output = Join-Path $outputDirectory ("MyDesk-$builtVersion-local-debug.apk")
 Copy-Item -LiteralPath (Join-Path $androidRoot 'app/build/outputs/apk/debug/app-debug.apk') -Destination $output
 Write-Output "APK: $output"

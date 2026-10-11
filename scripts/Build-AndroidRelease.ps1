@@ -50,7 +50,10 @@ try {
     if (!$certificateLine -or ($certificateLine -replace '^.*digest:\s*','').Trim() -ne $metadata.certificate_sha256) { throw 'RELEASE_CERTIFICATE_MISMATCH' }
     $outputDirectory = Join-Path $projectRoot 'dist'
     New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-    $output = Join-Path $outputDirectory 'MyDesk-1.2.1-release.apk'
+    $buildMetadata = Get-Content -Raw -LiteralPath (Join-Path $androidRoot 'app/build/outputs/apk/release/output-metadata.json') | ConvertFrom-Json
+$builtVersion = $buildMetadata.elements[0].versionName
+if (!$builtVersion -or $builtVersion -notmatch '^[A-Za-z0-9._-]+$') { throw 'INVALID_BUILD_VERSION_NAME' }
+$output = Join-Path $outputDirectory ("MyDesk-$builtVersion-release.apk")
     Copy-Item -LiteralPath $apkPath -Destination $output
     Write-Output "Signed release APK: $output"
     Write-Output "Release certificate SHA-256: $($metadata.certificate_sha256)"

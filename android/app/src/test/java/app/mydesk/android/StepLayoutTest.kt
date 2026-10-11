@@ -42,6 +42,18 @@ class StepLayoutTest {
         field.performTextReplacement("散步")
         assertEquals(emptyHeight,field.fetchSemanticsNode().boundsInRoot.height,1f)
     }
+    @Test fun estimateDetailsAreBelowTheRandomSwitch() {
+        showEditor()
+        val preview=compose.onNodeWithTag("plan-preview")
+        preview.onChildren().filter(hasText("5 次 · 最后 1120 步")).assertCountEquals(0)
+        val field=compose.onNodeWithTag("plan-name").fetchSemanticsNode().boundsInRoot
+        assertEquals(field.bottom,preview.fetchSemanticsNode().boundsInRoot.bottom,1f)
+        val summary=compose.onNodeWithTag("plan-summary").fetchSemanticsNode().boundsInRoot
+        val toggle=compose.onNodeWithTag("plan-random").fetchSemanticsNode().boundsInRoot
+        assertTrue(summary.top >= toggle.bottom)
+        compose.onNodeWithText("每次 +30 步 · 预计 5 次").assertExists()
+        compose.onNodeWithText("最终 1120 步").assertExists()
+    }
     @Test fun saveAndStartHaveEqualWidthsOnANarrowForm() {
         showEditor()
         val save=compose.onNodeWithText("保存配置").performScrollTo().fetchSemanticsNode().boundsInRoot

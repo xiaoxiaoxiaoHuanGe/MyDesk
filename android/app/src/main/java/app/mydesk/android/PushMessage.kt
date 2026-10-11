@@ -13,8 +13,9 @@ data class PushMessage(val eventId: String,val serverId: String,val deviceId: St
             val server=value("server_id",32).also { require(it == binding.serverId) }
             val device=value("device_id",36).also { require(it == binding.deviceId) }
             val registration=value("registration_id",32).also {require(it == binding.registrationId)}
-            val kind=value("kind",20).also { require(it in setOf("alert","task","test","sync","reminder")) }
-            val channel=value("channel",20).also { require(it in setOf("reminders","alerts","tasks")) }
+            val kind=value("kind",20).also { require(it in setOf("alert","task","test","sync","reminder","inbox")) }
+            val channel=value("channel",20).also { require(it in setOf("reminders","alerts","tasks","inbox")) }
+            require((kind=="inbox")== (channel=="inbox"))
             val created=Instant.parse(value("created_at",40))
             val expires=Instant.parse(value("expires_at",40))
             require(expires > now && expires > created && created <= now.plusSeconds(300) && expires <= created.plusSeconds(3600))

@@ -11,10 +11,12 @@ services:
     stop_grace_period: 60s
     environment:
       TZ: Asia/Shanghai
+      MYDESK_UPDATE_DIR: /app-updates
     ports:
       - "${MYDESK_BIND_IP:-127.0.0.1}:8787:8787"
     volumes:
       - ../data:/data
+      - ../app-updates:/app-updates:ro
     logging:
       driver: json-file
       options:

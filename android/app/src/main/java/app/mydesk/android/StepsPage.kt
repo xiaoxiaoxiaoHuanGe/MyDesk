@@ -138,7 +138,7 @@ import kotlinx.serialization.json.*
             }
             val p=run.obj("params")
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {Text("起始 ${p.text("start")} 步");Text("每次 +${p.text("increment")} 步")}
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {Text("起始 ${p.text("start")} 步");Text(if(p.text("random_percent","0")=="10") "基准 +${p.text("increment")} 步 · ±10%" else "每次 +${p.text("increment")} 步")}
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {Text("终止 ${p.text("target")} 步");Text("间隔 ${p.text("interval_minutes")} 分钟")}
             }
         }}

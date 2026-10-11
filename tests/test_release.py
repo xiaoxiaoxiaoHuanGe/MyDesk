@@ -37,6 +37,8 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn('mydesk/docs/DEPLOY.md',names)
                 self.assertIn('mydesk/deploy/compose.local.yaml',names)
                 self.assertIn('mydesk/scripts/Start-DockerLocal.ps1',names)
+                self.assertIn('mydesk/Build-OfficialRelease.cmd',names)
+                self.assertIn('mydesk/scripts/Build-OfficialReleaseWizard.ps1',names)
                 self.assertIn('mydesk/android/app/src/main/java/app/mydesk/android/MainActivity.kt',names)
                 self.assertIn('mydesk/android/gradle/wrapper/gradle-wrapper.jar',names)
                 self.assertFalse(any(name.endswith(('local.properties','google-services.json','mydesk_local_ca.crt','.keystore')) or '/build/' in name or '/.gradle/' in name for name in names))

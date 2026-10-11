@@ -1,6 +1,7 @@
 """Build an allowlisted deployment archive. Private runtime state is never read."""
 from pathlib import Path
 import zipfile
+import re
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -8,9 +9,9 @@ ROOT=Path(__file__).resolve().parents[1]
 def build(output):
     output=Path(output)
     output.parent.mkdir(parents=True,exist_ok=True)
-    files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore')]
+    files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore','Build-OfficialRelease.cmd')]
     files.append(ROOT/'assets/mydesk-logo.png')
-    files.append(ROOT/'.github/workflows/ci.yml')
+    files.extend((ROOT/'.github/workflows').glob('*.yml'))
     rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webp','.webmanifest'},
            'docs':{'.md'},'scripts':{'.py','.sh','.cjs','.ps1'},'tests':{'.py','.mjs'}}
     for folder,extensions in rules.items():
@@ -30,5 +31,7 @@ def build(output):
 
 
 if __name__=='__main__':
-    output=build(ROOT/'dist/MyDesk-1.2.1-source.zip')
+    version=re.search(r'versionName\s*=\s*"([^"]+)"',(ROOT/'android/app/build.gradle.kts').read_text())[1]
+    if not re.fullmatch(r'[A-Za-z0-9._-]+',version):raise ValueError('Invalid source version')
+    output=build(ROOT/('dist/MyDesk-'+version+'-source.zip'))
     print(f'Release: {output}')

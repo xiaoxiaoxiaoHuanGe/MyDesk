@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import random
 from datetime import timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -26,11 +27,22 @@ def parameters(value):
         raise ValueError('增量必须为 1–30000，间隔必须为 1–1440 分钟')
     if result['start'] > result['target']:
         raise ValueError('起始步数不能高于终止步数')
+    percent=value.get('random_percent',0)
+    if type(percent) is not int or percent not in (0,10):
+        raise ValueError('随机浮动必须为整数 0 或 10')
+    result['random_percent']=percent
+    if result['target']==30000:
+        raise ValueError('终止步数必须小于 30000')
     increments = (result['target']-result['start']) // result['increment'] + 1
     final = result['start'] + increments*result['increment']
-    if final > 30000:
+    if not percent and final > 30000:
         raise ValueError('首次超过终止步数的提交也必须不超过 30000 步')
     return result
+
+
+def increment_bounds(params):
+    spread=params['increment']*params.get('random_percent',0)//100
+    return max(1,params['increment']-spread),params['increment']+spread
 
 
 def binding(config):
@@ -40,8 +52,9 @@ def binding(config):
 
 
 class StepPlans:
-    def __init__(self, desk):
+    def __init__(self, desk, randint=None):
         self.desk = desk
+        self.randint = randint or random.SystemRandom().randint
         with desk.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS step_settings(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT);
@@ -104,7 +117,8 @@ class StepPlans:
         if type(daily) is not bool or not isinstance(clock,str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d',clock):
             raise ValueError('每日开始时间或重复开关无效')
         if daily:
-            count=(params['target']-params['start'])//params['increment']+1
+            low,_=increment_bounds(params)
+            count=(params['target']-params['start'])//low+1
             hour,minute=map(int,clock.split(':'))
             if hour*60+minute+count*params['interval_minutes'] >= 1440:
                 raise ValueError('每日计划预计跨日，请提前开始或调整参数')
@@ -223,6 +237,10 @@ class StepPlans:
             if run and run['status'] in LIVE and run['status']!='waiting':raise ValueError('请先处理或终止暂停的渐进任务')
             return self._job(db,steps,now,run if run and run['status']=='waiting' else None,'manual')
 
+    def next_increment(self, params):
+        low,high=increment_bounds(params)
+        return self.randint(low,high) if params.get('random_percent',0) else params['increment']
+
     def reconcile(self, now):
         with self.desk.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -243,7 +261,7 @@ class StepPlans:
                         if row['steps']>run['params']['target']:
                             run.update(status='completed',ended_at=stamp(now),next_at=None,message='首次超过终止步数，已完成本轮')
                         else:
-                            run.update(status='waiting',next_steps=row['steps']+run['params']['increment'],
+                            run.update(status='waiting',next_steps=min(row['steps']+self.next_increment(run['params']),30000),
                                        next_at=stamp(instant(row['created_at'])+timedelta(minutes=run['params']['interval_minutes'])),
                                        message='',pause_reason='')
                 elif run['status'] in LIVE:
@@ -296,6 +314,7 @@ class StepPlans:
                 run['records']=self._records(db,run['id'],20)
                 row=db.execute('SELECT * FROM jobs WHERE id=?',(run['current_job_id'],)).fetchone()
                 run['current_job']=dict(row) if row else None
+            value['capabilities']={'random_steps':True}
             value['run']=run
             value['recent_runs']=[dict(id=row['id'],**{k:json.loads(row['data']).get(k) for k in ('name','status','started_at','success_count','params','last_success','ended_at','message')})
                                   for row in db.execute('SELECT id,data FROM step_runs ORDER BY rowid DESC LIMIT 20')]

@@ -11,6 +11,7 @@ from .config import mail_accounts,server_sources
 from .mail_proxy import MailProxyError
 from .github_checkins import CheckinPoller, task_binding, legacy_binding
 from .daily_quote import poll_quote,FALLBACK
+from .inbox import Inbox
 from .step_plans import StepPlans
 from .attention import actionable_attention
 
@@ -35,6 +36,7 @@ class Runtime:
         self.last_mail_poll = None
         self.quote_lock=asyncio.Lock()
         self.configure_checkins()
+        self.inbox = Inbox(desk)
         self.step_plans = StepPlans(desk)
         self.step_dispatch_lock = asyncio.Lock()
 
@@ -112,6 +114,8 @@ class Runtime:
         state['links'] = {'gmail': 'https://mail.google.com/', 'beszel': self.config.get('beszel', {}).get('public_url')}
         if self.notification_error:
             state['attention'].append(dict(kind='integration', id='notifications', title='手机通知', message=self.notification_error))
+        state['capabilities']={'random_steps':True,'app_updates':True,'inbox':True}
+        state['inbox']=await self.executor(self.inbox.snapshot,now or now_utc())
         state['wxstep_plan']=await self.steps_db('snapshot')
         run=state['wxstep_plan']['run']
         if run and run['status']=='paused':
@@ -140,6 +144,10 @@ class Runtime:
                 self.manual_refresh = asyncio.create_task(self.refresh_all(now))
             await asyncio.shield(self.manual_refresh)
             return await self.snapshot(now)
+        if action=='inbox/read':
+            result=await self.executor(self.inbox.read,payload,now)
+            await self.publish()
+            return result
         if action == 'history':
             return await self.db('task_history', payload.get('limit', 100), payload.get('before'),payload.get('task_id'))
         if action=='attention/acknowledge':

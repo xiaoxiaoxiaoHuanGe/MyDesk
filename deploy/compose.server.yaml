@@ -12,8 +12,10 @@ services:
     stop_grace_period: 60s
     environment:
       TZ: Asia/Shanghai
+      MYDESK_UPDATE_DIR: /app-updates
     volumes:
       - ../data:/data
+      - ../app-updates:/app-updates:ro
     logging:
       driver: json-file
       options:
