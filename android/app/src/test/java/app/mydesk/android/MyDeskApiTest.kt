@@ -8,6 +8,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MyDeskApiTest {
+    @Test fun scanningAnotherServerNeverSendsOurSession()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            val vault=object: SessionVault {override var cookie="mydesk_session=secret";override var csrf="guard"}
+            val api=MyDeskApi(server.url("/").toString().trimEnd('/'),vault)
+            val raw="mydesk://login?server=https%3A%2F%2Fevil.example&id=${"a".repeat(32)}&token=${"b".repeat(43)}"
+            assertTrue(runCatching {api.previewQrLogin(raw)}.isFailure)
+            assertEquals(0,server.requestCount);assertEquals("mydesk_session=secret",vault.cookie)
+        } finally {server.shutdown()}
+    }
+    @Test fun qrConfirmationUsesAuthenticatedPostAndExplicitDecision()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            val base=server.url("/").toString().trimEnd('/')
+            val vault=object: SessionVault {override var cookie="mydesk_session=secret";override var csrf="guard"}
+            val api=MyDeskApi(base,vault)
+            server.enqueue(MockResponse().setBody("{\"confirmed\":true}"))
+            api.confirmQrLogin(QrLoginCode(base,"a".repeat(32),"b".repeat(43)),false)
+            val request=server.takeRequest();val body=deskJson.parseToJsonElement(request.body.readUtf8()).jsonObject
+            assertEquals("/api/qr-login/confirm",request.path);assertEquals("POST",request.method)
+            assertEquals("guard",request.getHeader("X-MyDesk-CSRF"));assertFalse(body["approve"]!!.jsonPrimitive.boolean)
+        } finally {server.shutdown()}
+    }
     @Test fun fullRefreshCanOutliveTheNormalReadTimeout() = runBlocking {
         val server=MockWebServer(); server.start()
         try {
@@ -42,7 +65,9 @@ class MyDeskApiTest {
             api.login("mydesk","password")
             val login=server.takeRequest()
             assertEquals("/api/login",login.path)
-            assertEquals("mydesk",deskJson.parseToJsonElement(login.body.readUtf8()).jsonObject.text("username"))
+            val loginBody=deskJson.parseToJsonElement(login.body.readUtf8()).jsonObject
+            assertEquals("mydesk",loginBody.text("username"))
+            assertEquals("android",loginBody.text("client"))
             assertEquals("mydesk_session=opaque",vault.cookie)
             assertEquals("guard",vault.csrf)
             server.enqueue(MockResponse().setBody("{}"))

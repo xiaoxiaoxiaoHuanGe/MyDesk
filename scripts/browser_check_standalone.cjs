@@ -13,6 +13,7 @@ const fs=require('node:fs');
   page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>{const Original=WebSocket;window.__deskSockets=[];window.WebSocket=class extends Original{constructor(...args){super(...args);window.__deskSockets.push(this);}};});
   await page.goto(base);await page.getByRole('heading',{name:'登录 MyDesk'}).waitFor();
+  await page.getByRole('button',{name:'账号密码登录',exact:true}).click();
   await page.getByLabel('用户名',{exact:true}).fill(credentials.username);await page.getByLabel('密码',{exact:true}).fill('wrong-password');await page.getByRole('button',{name:'登录',exact:true}).click();await page.getByText('账号或密码不正确',{exact:true}).waitFor();
   await page.getByLabel('密码',{exact:true}).fill(credentials.password);await page.getByRole('button',{name:'登录',exact:true}).click();await page.getByRole('heading',{name:'需要处理'}).waitFor();
   const session=await context.request.get(base+'/api/session').then(r=>r.json());

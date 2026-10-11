@@ -280,6 +280,8 @@ class StandaloneTests(unittest.IsolatedAsyncioTestCase):
         response=await self.command('snapshot')
         self.assertTrue((await response.json())['configured']['notifications'])
         await self.client.delete('/api/mobile/devices/'+'a'*32,headers={'X-MyDesk-CSRF':self.csrf})
+        self.assertEqual((await self.client.get('/api/session')).status,401)
+        await self.login()
         response=await self.command('snapshot')
         self.assertFalse((await response.json())['configured']['notifications'])
 

@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 
-@Composable internal fun DeviceNameSettings(current: String,busy: Boolean,save: (String,()->Unit)->Unit,serverError: String,embedded: Boolean=false) {
+@Composable internal fun DeviceNameSettings(current: String,busy: Boolean,save: (String,()->Unit)->Unit,serverError: String,embedded: Boolean=false,scan: ()->Unit={}) {
     var editing by rememberSaveable {mutableStateOf(false)}
     val deviceRow: @Composable ()->Unit={
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Edit
                 Text(current.ifBlank {"Android 手机"},style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton({editing=true},enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.Default.Edit,contentDescription="编辑设备名称")}
+            IconButton(scan,enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(SettingsGlyphs.Scan,contentDescription="扫一扫")}
         }
     }
     if(embedded) deviceRow() else DeskCard("本机设备") {deviceRow()}

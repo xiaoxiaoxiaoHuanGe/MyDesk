@@ -4,6 +4,7 @@ import {resolveAppearance} from './ui.js';
 import {icon} from './icons.js';
 import {renderSettings,openSettingsTarget} from './settings.js';
 import {openStepPlan} from './step-plan.js';
+import {QrLogin} from './qr-login.js';
 
 const $=selector=>document.querySelector(selector);
 let csrf,client,stopWatching,sessionInfo,page='dashboard',toastTimer;
@@ -26,12 +27,14 @@ export function toast(message,error=false) {
   toastTimer=setTimeout(()=>node.hidden=true,error?7000:4500);
 }
 function showLogin() {
+  const alreadyShown=!$('#login').hidden;
   stopWatching?.();stopWatching=null;client?.close();client=null;csrf=null;sessionInfo=null;
   document.querySelectorAll('dialog').forEach(dialog=>dialog.close());
   for(const [id,container] of [['desk','dashboard'],['reminders-desk','reminders']]){
     $('#'+id).remove();const card=document.createElement('mydesk-card');card.id=id;$('#'+container).append(card);
   }
   $('#application').hidden=true;$('#login').hidden=false;
+  if(!alreadyShown)setLoginMode('qr');
 }
 export async function request(path,{method='GET',body}={}) {
   const response=await fetch(path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json',...(csrf?{'X-MyDesk-CSRF':csrf}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
@@ -47,6 +50,7 @@ function updateHeader(state=client?.state) {
   $('#quote-credit').textContent=page==='dashboard'?[state?.daily_quote?.author,state?.daily_quote?.source].filter(Boolean).join(' · '):'';
 }
 async function signedIn(session) {
+  qrLogin.stop();
   csrf=session.csrf;sessionInfo=session;$('#login').hidden=true;$('#application').hidden=false;$('#account-name').textContent=session.username;
   client=new DeskClient(request,showLogin);client.darkMode=document.documentElement.dataset.theme==='dark';
   $('#desk').setConfig({mode:'dashboard'});$('#desk').client=client;
@@ -56,6 +60,23 @@ async function signedIn(session) {
   route();
 }
 export async function logout() {await request('/api/logout',{method:'POST'});showLogin();}
+const qrLogin=new QrLogin({request,onLogin:signedIn,onState:state=>{
+  const messages={loading:'正在生成二维码…',waiting:'请使用 MyDesk App 扫码',scanned:'已扫码，请在 App 上确认登录',expired:'二维码已过期，请刷新',rejected:'已取消登录，可以刷新二维码重试',used:'二维码已使用，请刷新'};
+  $('#qr-login-status').textContent=state.message||messages[state.status]||'请刷新二维码重试';
+  const image=$('#login-qr-image');image.hidden=!['waiting','scanned'].includes(state.status);
+  if(state.image)image.src=state.image;else image.removeAttribute('src');
+  $('#refresh-qr').hidden=['loading','waiting','scanned'].includes(state.status);
+}});
+function setLoginMode(mode) {
+  const qr=mode==='qr';$('#qr-login').hidden=!qr;$('#login-form').hidden=qr;
+  $('#use-qr').setAttribute('aria-pressed',String(qr));$('#use-password').setAttribute('aria-pressed',String(!qr));
+  if(qr)qrLogin.start();else {qrLogin.stop();$('#username').focus();}
+}
+$('#use-qr').onclick=()=>setLoginMode('qr');
+$('#use-password').onclick=()=>setLoginMode('password');
+$('#refresh-qr').onclick=()=>qrLogin.start();
+window.addEventListener('pagehide',()=>qrLogin.stop());
+window.addEventListener('pageshow',event=>{if(event.persisted&&!$('#login').hidden&&!$('#qr-login').hidden)qrLogin.start();});
 $('#show-password').onclick=()=>{const show=$('#password').type==='password';$('#password').type=show?'text':'password';$('#show-password').textContent=show?'隐藏':'显示';$('#show-password').setAttribute('aria-pressed',String(show));};
 $('#login-form').onsubmit=async event=>{
   event.preventDefault();const form=event.currentTarget,button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='正在登录…';$('#login-error').textContent='';

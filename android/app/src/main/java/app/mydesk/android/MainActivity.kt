@@ -180,6 +180,7 @@ class MainActivity: ComponentActivity() {
     }
     val detailReminder=state.reminders.firstOrNull {it.id == detailReminderId}
     val command: (String,JsonObject)->Unit={action,payload->graph.perform { graph.command(action,payload) }}
+    val scanQr=rememberQrLoginScanner(state.server,graph::previewQrLogin,graph::confirmQrLogin)
     Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
         DeskMainTabs(pagerState.currentPage,onSelect={index->
             history=false;pendingScroll=null;businessDetail=null;detailReminderId=null;focusMessage="";focusedReminder=""
@@ -218,7 +219,7 @@ class MainActivity: ComponentActivity() {
                         item { AccountSettingsCard(state.server,state.deviceName,state.busy || settingsState.busy,state.syncing,
                             sync={graph.perform {graph.syncAll();settingsModel.reload().join()}},logout={logout=true},
                             rename=settingsModel::renameDevice,changePassword={current,password->graph.perform {graph.changePassword(current,password)}},
-                            error=if(settingsState.failed) settingsState.message else "",passwordError=state.message) }
+                            error=if(settingsState.failed) settingsState.message else "",passwordError=state.message,scan=scanQr) }
                         item { NotificationSettings(graph,state,notify,exact,settings) }
                         item { WorkbenchSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "") }
                         item { IntegrationSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "",checkTask=settingsModel::checkGitHubTask,feedback=settingsState.message,checkService=settingsModel::checkService) }
