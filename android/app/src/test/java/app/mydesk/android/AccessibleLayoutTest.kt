@@ -454,29 +454,13 @@ class AccessibleLayoutTest {
         val actions=mutableListOf<Pair<String,Int>>()
         largeContent {ReminderCard(Reminder("r1","喝水","2099-01-01T00:00:00Z","pending","1"),"Asia/Shanghai",false) {action,minutes->actions.add(action to minutes)}}
         val viewport=compose.onNodeWithTag("viewport").fetchSemanticsNode().boundsInRoot
-        for(label in listOf("完成")) {
-            val text=compose.onNodeWithText(label,useUnmergedTree=true)
-            text.assertIsDisplayed()
-            val results=mutableListOf<TextLayoutResult>()
-            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) {it(results)}
-            val layout=results.single()
-            // The semantics result can retain a wider paragraph box than the placed Text.
-            // Check actual line extents and characters; allow half a pixel for integer bounds.
-            assertTrue(layout.lineCount > 0)
-            assertEquals(label.length,layout.getLineEnd(layout.lineCount-1,visibleEnd=true))
-            for(line in 0 until layout.lineCount) {
-                assertFalse("$label is ellipsized",layout.isLineEllipsized(line))
-                assertTrue("$label is clipped horizontally",layout.getLineLeft(line) >= -0.5f && layout.getLineRight(line) <= layout.size.width+0.5f)
-                assertTrue("$label is clipped vertically",layout.getLineBottom(line) <= layout.size.height+0.5f)
-            }
-            val button=compose.onNode(hasText(label) and hasClickAction())
-            button.assertHeightIsAtLeast(48.dp)
-            val bounds=button.fetchSemanticsNode().boundsInRoot
-            assertTrue("$label is outside the viewport",bounds.left >= viewport.left && bounds.right <= viewport.right && bounds.width > 0)
-        }
+        val button=compose.onNodeWithContentDescription("完成提醒")
+        button.assertIsDisplayed().assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
+        val bounds=button.fetchSemanticsNode().boundsInRoot
+        assertTrue("Completion is outside the viewport",bounds.left>=viewport.left && bounds.right<=viewport.right && bounds.width>0)
         compose.onNodeWithText("稍后提醒").assertDoesNotExist()
         compose.onNodeWithContentDescription("更多提醒操作").assertDoesNotExist()
-        compose.onNodeWithText("完成").performClick()
+        button.performClick()
         compose.runOnIdle {assertEquals(listOf("complete" to 10),actions)}
     }
 

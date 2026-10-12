@@ -13,7 +13,7 @@ import kotlin.coroutines.resume
 
 data class LocalIpEndpoint(val id: String,val label: String,val url: String,val domestic: Boolean=false)
 enum class IpExitStatus { LOADING, SUCCESS, TIMEOUT, FAILED }
-data class IpExitResult(val endpoint: LocalIpEndpoint,val status: IpExitStatus=IpExitStatus.LOADING,val ip: String="",val location: String="")
+data class IpExitResult(val endpoint: LocalIpEndpoint,val status: IpExitStatus=IpExitStatus.LOADING,val ip: String="",val location: String="",val diagnostic: String="")
 
 internal val localIpEndpoints=listOf(
     LocalIpEndpoint("domestic","国内出口","https://ip111.cn/",domestic=true),
@@ -30,6 +30,8 @@ class LocalIpClient(client: OkHttpClient=OkHttpClient.Builder()
         val url=endpoint.url.toHttpUrl().newBuilder().addQueryParameter("_mydesk",UUID.randomUUID().toString()).build()
         val request=Request.Builder().url(url).header("Accept","text/html,text/plain")
             .header("Cache-Control","no-cache, no-store")
+            // The domestic service returns 503 for OkHttp's default User-Agent.
+            .apply {if(endpoint.domestic) header("User-Agent","Mozilla/5.0")}
             // These two services reject direct requests without their embedding page's Referer.
             .apply {if(!endpoint.domestic) header("Referer","https://ip111.cn/")}.build()
         val call=http.newCall(request)
@@ -41,18 +43,18 @@ class LocalIpClient(client: OkHttpClient=OkHttpClient.Builder()
             override fun onResponse(call: Call,response: Response) {
                 val result=try {
                     response.use {
-                        if(!it.isSuccessful) IpExitResult(endpoint,IpExitStatus.FAILED)
+                        if(!it.isSuccessful) IpExitResult(endpoint,IpExitStatus.FAILED,diagnostic="HTTP ${it.code}")
                         else parse(endpoint,it.body?.string() ?: "")
                     }
                 } catch(error: IOException) {failure(endpoint,error)}
-                  catch(_: IllegalArgumentException) {IpExitResult(endpoint,IpExitStatus.FAILED)}
+                  catch(_: IllegalArgumentException) {IpExitResult(endpoint,IpExitStatus.FAILED,diagnostic="Invalid IP response")}
                 if(continuation.isActive) continuation.resume(result)
             }
         })
     }
 
     private fun failure(endpoint: LocalIpEndpoint,error: IOException)=
-        IpExitResult(endpoint,if(error is InterruptedIOException) IpExitStatus.TIMEOUT else IpExitStatus.FAILED)
+        IpExitResult(endpoint,if(error is InterruptedIOException) IpExitStatus.TIMEOUT else IpExitStatus.FAILED,diagnostic=error.javaClass.simpleName)
 
     private fun parse(endpoint: LocalIpEndpoint,html: String): IpExitResult {
         require(html.length<=256_000) {"IP response too large"}
@@ -67,7 +69,7 @@ class LocalIpClient(client: OkHttpClient=OkHttpClient.Builder()
             .replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
             .lineSequence().map {it.trim().replace(Regex("\\s+")," ")}.filter {it.isNotEmpty()}.toList()
         val index=lines.indexOfFirst(::isIpLiteral)
-        if(index<0) return IpExitResult(endpoint,IpExitStatus.FAILED)
+        if(index<0) return IpExitResult(endpoint,IpExitStatus.FAILED,diagnostic="IP result missing")
         val location=lines.getOrNull(index+1)?.take(160).orEmpty()
         return IpExitResult(endpoint,IpExitStatus.SUCCESS,lines[index],location)
     }

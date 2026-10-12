@@ -229,7 +229,7 @@ class MainActivity: ComponentActivity() {
                             rename=settingsModel::renameDevice,changePassword={current,password->graph.perform {graph.changePassword(current,password)}},
                             error=if(settingsState.failed) settingsState.message else "",passwordError=state.message,scan=scanQr) }
                         item { NotificationSettings(graph,state,notify,exact,settings) }
-                        item { DeskCard("通知接入") {TextButton({sourcesOpen=true}) {Text("管理通知来源")};TextButton({inboxOpen=true}) {Text("查看收件箱")}} }
+                        item { NotificationAccessCard(snapshot.obj("inbox").text("unread","0"),{sourcesOpen=true},{inboxOpen=true}) }
                         item { WorkbenchSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "") }
                         item { IntegrationSettings(settingsState.config,state.busy || settingsState.busy,settingsModel::save,if(settingsState.failed) settingsState.message else "",checkTask=settingsModel::checkGitHubTask,feedback=settingsState.message,checkService=settingsModel::checkService) }
                         item { BackupSettings(graph,settingsModel::reload,enabled=!state.busy && !settingsState.busy) }

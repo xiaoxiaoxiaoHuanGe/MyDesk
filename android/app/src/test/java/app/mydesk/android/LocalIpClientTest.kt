@@ -11,6 +11,25 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class LocalIpClientTest {
+    @Test fun domesticQueryUsesACompatibleUserAgentInsteadOfTheRejectedOkHttpDefault() = runBlocking {
+        val server=MockWebServer()
+        server.dispatcher=object: Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if(request.getHeader("User-Agent")=="Mozilla/5.0")
+                    MockResponse().setBody("<div class=\"card-body\"><p>203.0.113.42<br/>中国 深圳</p></div>")
+                else MockResponse().setResponseCode(503)
+        }
+        server.start()
+        try {
+            val result=LocalIpClient().fetch(LocalIpEndpoint("domestic","国内出口",server.url("/").toString(),domestic=true))
+            assertEquals(IpExitStatus.SUCCESS,result.status)
+            assertEquals("203.0.113.42",result.ip)
+            val request=server.takeRequest()
+            assertNull(request.getHeader("Cookie"))
+            assertNull(request.getHeader("Authorization"))
+        } finally {server.shutdown()}
+    }
+
     @Test fun embeddedEndpointsUseTheHomepageRefererRequiredByTheService() = runBlocking {
         val server=MockWebServer()
         server.dispatcher=object: Dispatcher() {

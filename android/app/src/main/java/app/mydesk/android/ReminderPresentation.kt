@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,21 +39,19 @@ internal fun reminderTime(value: String,zone: String,fullDate: Boolean=false): S
 @Composable internal fun ReminderCard(reminder: Reminder,zone: String,busy: Boolean,focused: Boolean=false,detail: (()->Unit)?=null,action: (String,Int)->Unit) {
     Card(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.large,colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
         border=if(focused) BorderStroke(1.dp,MaterialTheme.colorScheme.primary) else null) {
-        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text(reminder.title,modifier=Modifier.weight(1f).semantics {heading()},style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-                if(detail != null) IconButton(detail,modifier=Modifier.size(48.dp)) {Icon(Icons.AutoMirrored.Filled.ArrowForward,contentDescription="查看提醒详情")}
-            }
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                FlowRow(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp),itemVerticalAlignment=Alignment.CenterVertically) {
+                    DeskStateBadge(reminderStatusLabel(reminder))
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.Default.DateRange,contentDescription=null,modifier=Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(reminderTime(reminder.remindAt,zone),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(reminderTime(reminder.remindAt,zone),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
                     }
-                    DeskStateBadge(reminderStatusLabel(reminder))
                 }
-                DeskButton({action("complete",10)},enabled=!busy) {Text("完成")}
+                if(detail != null) IconButton(detail,modifier=Modifier.size(48.dp)) {Icon(Icons.AutoMirrored.Filled.ArrowForward,contentDescription="查看提醒详情")}
+                IconButton({action("complete",10)},enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.Default.Check,contentDescription="完成提醒")}
             }
+            Text(reminder.title,modifier=Modifier.fillMaxWidth().semantics {heading()},style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
         }
     }
 }
