@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Build
 import androidx.work.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
@@ -17,7 +16,7 @@ val Context.graph: AppGraph get()=(applicationContext as MyDeskApp).graph
 
 data class HomeState(val snapshot: JsonObject?=null,val reminders: List<Reminder> = emptyList(),val queued: Int=0,
     val server: String="",val theme: String="system",val authenticated: Boolean=false,val connected: Boolean=false,
-    val ready: Boolean=false,val busy: Boolean=false,val message: String="",val pushStatus: JsonObject?=null,val deviceName: String="",val syncing: Boolean=false)
+    val ready: Boolean=false,val busy: Boolean=false,val message: String="",val pushStatus: JsonObject?=null,val deviceName: String="",val syncing: Boolean=false,val realtimeConnected: Boolean=false)
 
 class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -29,11 +28,13 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     private var client: MyDeskApi?=null
     private val http=OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).pingInterval(20,TimeUnit.SECONDS).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).build()
     val repo=DeskRepository(context,store,{client?.takeIf { it.vault.cookie.isNotEmpty() }},{phone.device},scheduler,{phone.deviceName})
-    val push=NativePush(context,{client?.takeIf { it.vault.cookie.isNotEmpty() }},{phone.device},store,scheduler)
+    val push=NativePush(context,{client?.takeIf { it.vault.cookie.isNotEmpty() }},{phone.device},store,scheduler,repo.inboxNotifications)
     internal val updates=AppUpdateController(context,scope,{client?.takeIf {state.value.authenticated}},{invalidateSession(it)})
     val ready=CompletableDeferred<Unit>()
-    private var foreground: Job?=null
-    private var wantsForeground=false
+    private var activityVisible=false
+    private val realtime=RealtimeConnection(scope,http,{client?.takeIf {state.value.authenticated && it.vault.cookie.isNotEmpty()}},
+        synchronize={sync()},accept={repo.snapshot(it)},connected={value->mutable.update {it.copy(connected=value,realtimeConnected=value)}},checkUpdates={updates.check()})
+    internal val backgroundReceiving=BackgroundReceiving(context,{state.value.authenticated},realtime::background)
     private val manualSyncLock=kotlinx.coroutines.sync.Mutex()
     init {
         scope.launch {
@@ -45,7 +46,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
                 if (changed || client == null) client=value.server.takeIf { it.isNotEmpty() }?.let { MyDeskApi(it,SecureVault(context,it),http) }
                 mutable.update { it.copy(server=value.server,theme=value.theme,deviceName=value.deviceName,ready=true,authenticated=client?.vault?.cookie?.isNotEmpty() == true) }
                 if (!ready.isCompleted) ready.complete(Unit)
-                if (wantsForeground && foreground == null) startForeground()
+                realtime.refresh()
             }
         }
         scope.launch { store.state.collect { cache -> mutable.update { it.copy(snapshot=cache.snapshot,reminders=cache.reminders,queued=cache.queued) } } }
@@ -67,7 +68,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         ready.await()
         updates.reset()
         val base=InputRules.server(server)
-        if (base != phone.server) { stopForeground(); repo.endSession {push.clear()} }
+        if (base != phone.server) { stopSessionConnection(); repo.endSession {push.clear()} }
         val api=MyDeskApi(base,SecureVault(context,base),http)
         api.login(username,password)
         phone=phone.copy(server=base); client=api
@@ -75,10 +76,11 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         repo.register(); repo.sync()
         push.bind(repo.registration); push.refresh(repo.registration)
         mutable.update { it.copy(server=base,authenticated=true,message="已登录，提醒已同步") }
-        schedulePeriodic(); startForeground()
+        schedulePeriodic(); realtime.foreground(activityVisible)
+        if(activityVisible) backgroundReceiving.startIfEnabled()
     }
     suspend fun logout() {
-        ready.await(); updates.reset(); stopForeground()
+        ready.await(); updates.reset(); stopSessionConnection()
         mutable.update {it.copy(authenticated=false,connected=false)}
         WorkManager.getInstance(context).cancelAllWorkByTag("mydesk-sync")
         push.clear()
@@ -134,7 +136,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
             repo.endSession {push.clear();client?.vault?.apply {cookie="";csrf=""}}
             mutable.update {it.copy(snapshot=null,reminders=emptyList(),pushStatus=null,message=error.message ?: "请重新登录")}
         }
-        stopForeground()
+        stopSessionConnection()
     }
     private suspend fun <T> authorized(operation: suspend ()->T): T = try {operation()}
         catch(error: ApiError) {if(error.status in setOf(401,403)) invalidateSession(error);throw error}
@@ -201,41 +203,18 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     suspend fun loadStepHistory(runId: String,before: Int?): List<JsonObject> =
         authorized {repo.command("wxstep/plan/history",buildJsonObject {put("run_id",runId);put("limit",100);before?.let {put("before",it)}})}.jsonArray.map {it.jsonObject}
     fun startForeground() {
-        wantsForeground=true
-        if (foreground?.isActive == true || !ready.isCompleted) return
-        foreground=scope.launch {
-            try {
-                var delayMs=2000L
-                while (isActive && state.value.authenticated) {
-                    try {
-                        sync()
-                        updates.check()
-                        val api=client ?: break
-                        val messages=Channel<String>(Channel.CONFLATED)
-                        val request=Request.Builder().url(api.base.replaceFirst("https://","wss://")+"/api/ws").header("Cookie",api.vault.cookie).build()
-                        val socket=http.newWebSocket(request,object: WebSocketListener() {
-                            override fun onOpen(webSocket: WebSocket,response: Response) { mutable.update { it.copy(connected=true) } }
-                            override fun onMessage(webSocket: WebSocket,text: String) { messages.trySend(text) }
-                            override fun onFailure(webSocket: WebSocket,t: Throwable,response: Response?) { messages.close() }
-                            override fun onClosing(webSocket: WebSocket,code: Int,reason: String) { webSocket.close(code,reason); messages.close() }
-                            override fun onClosed(webSocket: WebSocket,code: Int,reason: String) { messages.close() }
-                        })
-                        try {
-                            for (text in messages) {
-                                val message=deskJson.parseToJsonElement(text).jsonObject
-                                if (message.text("type") == "snapshot") repo.snapshot(message.obj("state").toString())
-                            }
-                        } finally { socket.cancel(); messages.cancel() }
-                        delayMs=2000L
-                    } catch (cancel: CancellationException) { throw cancel }
-                    catch (_: IOException) { }
-                    mutable.update { it.copy(connected=false) }
-                    delay(delayMs); delayMs=minOf(delayMs*2,30000L)
-                }
-            } finally { mutable.update { it.copy(connected=false) } }
+        activityVisible=true
+        realtime.foreground(true)
+        scope.launch {
+            ready.await()
+            if(activityVisible && state.value.authenticated) backgroundReceiving.startIfEnabled()
         }
     }
-    fun stopForeground() { wantsForeground=false; foreground?.cancel(); foreground=null; mutable.update { it.copy(connected=false) } }
+    fun stopForeground() {activityVisible=false;realtime.foreground(false)}
+    private fun stopSessionConnection() {
+        backgroundReceiving.suspendReceiving()
+        realtime.clear()
+    }
     fun requestSync() {
         val work=OneTimeWorkRequestBuilder<SyncWorker>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag("mydesk-sync").build()

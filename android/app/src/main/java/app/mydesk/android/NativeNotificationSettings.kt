@@ -14,7 +14,7 @@ import kotlinx.serialization.json.*
             Text(if(flag("push_available")) "后端发送凭据已配置" else "后端发送凭据尚未配置")
             Text(if(flag("token_registered_locally")) "本机已有原生 Token" else "本机尚未取得原生 Token")
         }
-        Text("定时提醒由手机闹钟执行。服务器产生的即时告警需要配置原生推送。",style=MaterialTheme.typography.bodySmall)
+        Text("定时提醒由手机闹钟执行；最近通知同步到手机后会显示系统通知。可开启后台实时接收以继续收取消息，或配置原生推送。",style=MaterialTheme.typography.bodySmall)
         TextButton({graph.perform { graph.notificationStatus() }},enabled=!state.busy) { Text("刷新通知状态") }
         DeskOutlinedButton({graph.perform { graph.testNotification() }},enabled=!state.busy && flag("push_available") && flag("token_registered_locally")) { Text("发送原生测试通知") }
         status?.rows("deliveries")?.take(5)?.forEach { delivery ->

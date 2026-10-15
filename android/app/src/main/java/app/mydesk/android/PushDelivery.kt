@@ -8,13 +8,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 
-class PushDelivery(private val context: Context,private val inbox: PushInbox) {
+class PushDelivery(private val context: Context,private val inbox: PushInbox,private val inboxNotifications: InboxNotifications?=null) {
     private val manager=context.getSystemService(NotificationManager::class.java)
     init {
         DeskNotificationChannels.create(context)
     }
     suspend fun receive(message: PushMessage): Boolean=inbox.receive(message) {
-        if(message.kind in setOf("sync","reminder")) "received"
+        if(message.kind=="inbox" && inboxNotifications!=null) inboxNotifications.receive(message)
+        else if(message.kind in setOf("sync","reminder")) "received"
         else if(!allowed(context) || manager.getNotificationChannel(message.channel)?.importance == NotificationManager.IMPORTANCE_NONE) "blocked"
         else {
             val open=PendingIntent.getActivity(context,0,Intent().setClassName(context,"app.mydesk.android.MainActivity")

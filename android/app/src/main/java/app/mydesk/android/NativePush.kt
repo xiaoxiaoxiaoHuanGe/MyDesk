@@ -28,10 +28,10 @@ class PushPrefs(context: Context) {
     fun unbind() { check(prefs.edit().remove("server_id").remove("device_id").remove("registration_id").commit()) }
 }
 
-class NativePush(private val context: Context,private val api: ()->MyDeskApi?,private val device: ()->String,private val store: NativeStore?=null,private val scheduler: ReminderScheduler?=null) {
+class NativePush(private val context: Context,private val api: ()->MyDeskApi?,private val device: ()->String,private val store: NativeStore?=null,private val scheduler: ReminderScheduler?=null,private val inboxNotifications: InboxNotifications?=null) {
     val prefs=PushPrefs(context)
     val inbox=PushInbox(context)
-    private val delivery=PushDelivery(context,inbox)
+    private val delivery=PushDelivery(context,inbox,inboxNotifications)
     private val lock=kotlinx.coroutines.sync.Mutex()
     val configured: Boolean get()=FirebaseApp.getApps(context).isNotEmpty()
     private fun messaging(): FirebaseMessaging?=if(configured) FirebaseMessaging.getInstance() else null

@@ -71,7 +71,7 @@ sudo cat data/LOCAL_ACCESS.md
 
 ### 2. 安装 Android APP
 
-从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.2.1-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
+从 [Releases](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/releases/latest) 下载 `MyDesk-1.4.3-release.apk`，安装后填写你的 **HTTPS 服务地址**，使用上一步生成的账号登录。
 
 系统要求 **Android 8.0 或更高版本**。正式版验证系统信任的 HTTPS 证书；首次创建提醒前，按 APP 引导授予通知和准确提醒权限。
 
@@ -99,7 +99,7 @@ sudo cat data/LOCAL_ACCESS.md
 
 实际时间受请求耗时和网络影响；“立即同步”可绕过定时等待。
 
-**本地提醒与远程推送是两种机制。** 已同步到手机的提醒由 Android AlarmManager 调度，可显示通知、横幅和锁屏提醒，具体表现受系统通知渠道及设备策略影响。GitHub、邮件等结果会更新工作台；如需 APP 关闭时即时收到服务器通知，还需要自行配置 Firebase/FCM 并验证设备可用性，见 [通知说明](docs/NOTIFICATIONS.md)。公开 APK 不包含个人 Firebase 配置。
+已同步到手机的提醒由 Android AlarmManager 调度，可显示通知、横幅和锁屏提醒。“最近通知”的新消息同步到手机后也会显示系统通知。1.4.3 增加 **设置 → 后台实时接收 → 桌面与锁屏接收**：用户手动开启后，通过静音常驻通知维持连接，返回桌面后继续接收消息。默认关闭，锁屏网络仍受系统省电策略影响，使用说明见 [后台实时接收](docs/BACKGROUND_RECEIVING.md)。Firebase/FCM 原生推送仍是独立可选机制，公开 APK 不包含个人 Firebase 配置，见 [通知说明](docs/NOTIFICATIONS.md)。
 
 ## 自己掌握数据
 
@@ -162,6 +162,10 @@ Android 构建及正式签名步骤见 [Android 开发说明](android/README.md)
 欢迎通过 [Issues](https://github.com/xiaoxiaoxiaoHuanGe/MyDesk/issues) 反馈问题或提交 Pull Request。提交截图和日志前请隐藏账号、服务地址与凭据。开发约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请参阅 [SECURITY.md](SECURITY.md)。
 
 MyDesk 源码采用 [MIT License](LICENSE)。第三方依赖遵循各自许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 1.4.3 后台实时接收
+
+最近通知支持系统通知、横幅和锁屏展示；可手动开启后台实时接收，前后台共享连接并自动重连。169 项 Android 测试通过，桌面后台与锁屏提醒已完成真机验收。更新使用原正式签名，可通过现有 APP 更新渠道覆盖升级。见 [1.4.3 版本说明](docs/ANDROID_1_4_3.md)。
 
 ## 1.3.0 三项新增功能
 

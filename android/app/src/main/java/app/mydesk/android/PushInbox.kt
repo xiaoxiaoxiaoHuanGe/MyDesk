@@ -10,7 +10,7 @@ class PushInbox(context: Context,memory: Boolean=false) {
     private val db=if(memory) Room.inMemoryDatabaseBuilder(context,PushDatabase::class.java).build()
         else Room.databaseBuilder(context,PushDatabase::class.java,"mydesk-push.db").addMigrations(PUSH_MIGRATION).build()
     private val dao=db.push()
-    suspend fun receive(message: PushMessage,display: ()->String): Boolean=db.withTransaction {
+    suspend fun receive(message: PushMessage,display: suspend ()->String): Boolean=db.withTransaction {
         if(dao.get(message.eventId) != null) return@withTransaction false
         val phase=display()
         require(phase in setOf("received","display_requested","blocked"))

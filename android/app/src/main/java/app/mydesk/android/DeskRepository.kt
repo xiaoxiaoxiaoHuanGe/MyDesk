@@ -18,6 +18,7 @@ internal suspend fun persistAndScheduleReminders(update: suspend ()->Unit,schedu
 }
 
 class DeskRepository(val context: Context,val store: NativeStore,val api: ()->MyDeskApi?,val deviceId: ()->String,val scheduler: ReminderScheduler,val deviceName: ()->String={Build.MODEL.take(80).ifBlank {"Android 手机"}}) {
+    val inboxNotifications=InboxNotifications(context,store)
     private val syncLock=Mutex()
     private var sessionOpen=true
     var conflictMessage: String?=null
@@ -70,6 +71,7 @@ class DeskRepository(val context: Context,val store: NativeStore,val api: ()->My
         }
         val snapshot=client.request("/api/command","POST",buildJsonObject { put("action","snapshot") })
         persistAndScheduleReminders({store.accept(snapshot.toString())},{scheduler.apply(store.visible())})
+        inboxNotifications.sync(snapshot.jsonObject,client)
         true
     }
     suspend fun act(id: String,revision: String,action: String,minutes: Int=10)=syncLock.withLock {
@@ -81,7 +83,10 @@ class DeskRepository(val context: Context,val store: NativeStore,val api: ()->My
         store.enqueueInboxRead(payload)
     }
     suspend fun cacheInbox(rows: List<JsonObject>)=syncLock.withLock {if(sessionOpen)store.cacheInbox(rows)}
-    suspend fun snapshot(value: String)=syncLock.withLock {if(sessionOpen) persistAndScheduleReminders({store.accept(value)},{scheduler.apply(store.visible())})}
+    suspend fun snapshot(value: String)=syncLock.withLock {if(sessionOpen) {
+        persistAndScheduleReminders({store.accept(value)},{scheduler.apply(store.visible())})
+        inboxNotifications.sync(deskJson.parseToJsonElement(value).jsonObject,api())
+    }}
     suspend fun command(action: String,payload: JsonObject=buildJsonObject { }): JsonElement {
         val client=api() ?: error("请先登录")
         val result=client.request("/api/command","POST",buildJsonObject { put("action",action); put("payload",payload) })
