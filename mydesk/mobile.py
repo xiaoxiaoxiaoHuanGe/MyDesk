@@ -99,7 +99,7 @@ class Mobile:
         revision=text_field(data.get('revision'),'提醒版本',80)
         action=data.get('action');minutes=data.get('minutes',10)
         occurred=instant(data.get('occurred_at'))
-        if action not in ('complete','cancel','snooze') or type(minutes) is not int or minutes not in (10,30,60):
+        if action not in ('complete','cancel','snooze','pause','resume') or type(minutes) is not int or minutes not in (10,30,60):
             raise ValueError('提醒操作无效')
         normalized={'id':reminder,'revision':revision,'action':action,'minutes':minutes,'occurred_at':stamp(occurred)}
         fingerprint=hashlib.sha256(json.dumps(normalized,sort_keys=True).encode()).hexdigest()

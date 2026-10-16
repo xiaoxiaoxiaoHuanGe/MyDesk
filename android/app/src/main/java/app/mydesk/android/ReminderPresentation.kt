@@ -25,6 +25,7 @@ import java.time.Instant
 }
 
 internal fun reminderStatusLabel(reminder: Reminder): String=when {
+    reminder.status=="paused" -> "已暂停"
     reminder.status in setOf("pending","snoozed") && runCatching {Instant.parse(reminder.remindAt) <= Instant.now()}.getOrDefault(false) -> "已到时间"
     reminder.status == "pending" -> "待提醒"
     else -> status(reminder.status)
@@ -49,9 +50,10 @@ internal fun reminderTime(value: String,zone: String,fullDate: Boolean=false): S
                     }
                 }
                 if(detail != null) IconButton(detail,modifier=Modifier.size(48.dp)) {Icon(Icons.AutoMirrored.Filled.ArrowForward,contentDescription="查看提醒详情")}
-                IconButton({action("complete",10)},enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.Default.Check,contentDescription="完成提醒")}
+                IconButton({action(if(reminder.status=="paused") "resume" else "complete",10)},enabled=!busy,modifier=Modifier.size(48.dp)) {Icon(Icons.Default.Check,contentDescription=if(reminder.status=="paused") "恢复重复提醒" else "完成提醒")}
             }
             Text(reminder.title,modifier=Modifier.fillMaxWidth().semantics {heading()},style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
+            reminder.repeat?.let {Text(it.label(),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
     }
 }

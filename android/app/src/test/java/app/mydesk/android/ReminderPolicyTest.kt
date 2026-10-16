@@ -5,6 +5,28 @@ import org.junit.Test
 import java.time.Instant
 
 class ReminderPolicyTest {
+    @Test fun nextMinuteRollsTheDateAndHourAtMidnight() {
+        val result=nextReminderMinute(Instant.parse("2026-10-16T15:59:50Z"),java.time.ZoneId.of("Asia/Shanghai"))
+        assertEquals("2026-10-17T00:00+08:00[Asia/Shanghai]",result.toString())
+    }
+
+    @Test fun recurringCompletionAndSnoozeKeepTheFixedClockAndPauseSurvivesOfflineRollover() {
+        val rule=ReminderRepeat((1..5).toList(),9,0,"Asia/Shanghai","seed")
+        val first=Reminder("r","提醒","2026-10-16T01:00:00Z","pending","v",rule,"2026-10-16T01:00:00Z")
+        val snoozed=ReminderPolicy.project(first,PendingAction("s","r","v","snooze",30,"2026-10-16T01:00:00Z"))
+        val complete=ReminderPolicy.project(snoozed,PendingAction("c","r",snoozed.revision,"complete",10,"2026-10-16T01:31:00Z"))
+        assertEquals("2026-10-19T01:00:00Z",complete.remindAt)
+        val paused=PendingAction("p","r","v","pause",10,"2026-10-16T00:00:00Z")
+        assertEquals("paused",ReminderPolicy.visible(listOf(first),listOf(paused),Instant.parse("2026-10-21T01:00:00Z")).single().status)
+    }
+    @Test fun cachedRecurringReminderAdvancesOfflineAndOldNotificationCannotCompleteTheNextOne() {
+        val cached=deskJson.decodeFromString<Reminder>("""{"id":"repeat","title":"提醒","remind_at":"2020-10-16T01:00:00Z","status":"pending","revision":"seed:1602810000","scheduled_at":"2020-10-16T01:00:00Z","repeat":{"days":[1,2,3,4,5],"hour":9,"minute":0,"timezone":"Asia/Shanghai","seed":"seed"}}""")
+        val result=ReminderPolicy.visible(listOf(cached),emptyList()).single()
+        assertTrue(Instant.parse(result.remindAt)>Instant.parse("2020-10-16T01:00:00Z"))
+        assertNotEquals(cached.revision,result.revision)
+        val old=PendingAction("op","repeat",cached.revision,"complete",10,Instant.now().toString())
+        assertEquals(result.revision,ReminderPolicy.project(result,old).revision)
+    }
     private val now = Instant.parse("2026-10-02T08:00:00Z")
     private fun reminder(revision: String = "v1") = Reminder("r1", "续费 VPS", "2026-10-02T08:30:00Z", "pending", revision)
 

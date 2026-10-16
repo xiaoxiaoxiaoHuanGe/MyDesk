@@ -12,7 +12,7 @@ data class LocalIpState(val exits: List<IpExitResult> = localIpEndpoints.map {Ip
 
 class LocalIpViewModel(
     private val loader: suspend (LocalIpEndpoint)->IpExitResult=LocalIpClient()::fetch,
-    private val timeoutMs: Long=10_000
+    private val timeoutMs: Long=12_000
 ): ViewModel() {
     private val mutable=MutableStateFlow(LocalIpState())
     val state=mutable.asStateFlow()

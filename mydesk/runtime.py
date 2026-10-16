@@ -198,7 +198,9 @@ class Runtime:
             return dict(connected=True,message='工作流连接成功，所选分支尚无执行记录；请核对分支并在 GitHub 运行一次' if not runs.get('workflow_runs') else '连接成功，可以同步此工作流的执行结果')
         if action == 'reminder/create':
             when = parse_time(payload.get('time', ''), self.config.get('timezone', 'Asia/Shanghai'), now)
-            result = await self.db('create_reminder', payload.get('title'), when, now)
+            result = await self.db('create_reminder', payload.get('title'), when, now, repeat=payload.get('repeat'))
+        elif action == 'reminder/repeat':
+            result = await self.db('update_reminder_repeat', payload.get('id'), payload.get('revision'), payload.get('repeat'), now)
         elif action == 'reminder/action':
             result = await self.db('reminder_action', payload.get('id'), payload.get('action'), now,
                                     minutes=payload.get('minutes', 10), revision=payload.get('revision'))

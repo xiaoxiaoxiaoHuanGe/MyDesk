@@ -1,21 +1,26 @@
 import {pickerDate} from './ui.js';
 
+export const wrapIndex=(index,count)=>((index%count)+count)%count;
+export const initialPickerDate=(timeZone,now=new Date())=>pickerDate(timeZone,new Date(now.getTime()+60000));
+
 export function mountPicker(container,mode,timeZone) {
   container._observer?.disconnect();
-  const current=pickerDate(timeZone,new Date(Date.now()+5*60000));
+  const current=initialPickerDate(timeZone);
   const today=pickerDate(timeZone).date;
   const pad=n=>String(n).padStart(2,'0');
   const dates=Array.from({length:366},(_,i)=>{const date=new Date(today+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+i);return {value:date.toISOString().slice(0,10),label:i<3?['今天','明天','后天'][i]:`${date.getUTCMonth()+1}月${date.getUTCDate()}日`};});
   const numbers=n=>Array.from({length:n},(_,i)=>({value:pad(i),label:pad(i)}));
   const specs=mode==='countdown'?[['hour','小时',numbers(24),'00'],['minute','分钟',numbers(60),'15'],['second','秒',numbers(60),'00']]:[['date','日期',dates,current.date],['hour','小时',numbers(24),current.hour],['minute','分钟',numbers(60),current.minute]];
   container.replaceChildren();
-  for(const [name,label,items,value] of specs){
+  for(const [name,label,values,value] of specs){
+    const cyclic=name!=='date',count=values.length;
+    const items=cyclic?Array.from({length:count*5},(_,i)=>values[i%count]):values;
     const column=document.createElement('div');column.className='picker-column';
     column.innerHTML=`<span class="picker-label">${label}</span><input type="hidden" name="${name}" value="${value}"><div class="wheel" role="listbox" tabindex="0" aria-label="${label}">${items.map(item=>`<button type="button" tabindex="-1" role="option" aria-selected="false" data-value="${item.value}">${item.label}</button>`).join('')}</div>`;
-    container.append(column);const wheel=column.querySelector('.wheel'),input=column.querySelector('input'),options=[...wheel.children];let selected=items.findIndex(item=>item.value===value),timer,interacting=false;
-    function select(index,scroll=false){selected=Math.max(0,Math.min(items.length-1,index));input.value=items[selected].value;options.forEach((option,i)=>option.setAttribute('aria-selected',String(i===selected)));wheel.setAttribute('aria-activedescendant',options[selected].id);if(scroll)wheel.scrollTo({top:selected*52,behavior:'instant'});container.dispatchEvent(new Event('change',{bubbles:true}));}
+    container.append(column);const wheel=column.querySelector('.wheel'),input=column.querySelector('input'),options=[...wheel.children];let selected=(cyclic?count*2:0)+values.findIndex(item=>item.value===value),timer,interacting=false;
+    function select(index,scroll=false){selected=cyclic&&scroll?count*2+wrapIndex(index,count):Math.max(0,Math.min(items.length-1,index));input.value=items[selected].value;options.forEach((option,i)=>option.setAttribute('aria-selected',String(i===selected)));wheel.setAttribute('aria-activedescendant',options[selected].id);if(scroll)wheel.scrollTo({top:selected*52,behavior:'instant'});container.dispatchEvent(new Event('change',{bubbles:true}));}
     options.forEach((option,index)=>{option.id=`picker-${name}-${index}`;option.onclick=()=>select(index,true);});
-    const finishGesture=()=>{clearTimeout(timer);timer=setTimeout(()=>interacting=false,160);};
+    const finishGesture=()=>{clearTimeout(timer);timer=setTimeout(()=>{interacting=false;if(cyclic)select(selected,true);},160);};
     wheel.addEventListener('pointerdown',()=>{interacting=true;clearTimeout(timer);},{passive:true});
     wheel.addEventListener('pointerup',finishGesture,{passive:true});
     wheel.addEventListener('pointercancel',finishGesture,{passive:true});

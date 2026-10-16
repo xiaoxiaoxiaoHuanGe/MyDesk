@@ -237,7 +237,11 @@ class MainActivity: ComponentActivity() {
                         item { AppUpdateSettings(graph) }
                     }
                     page == 1 -> {
-                        item { ReminderForm(state.busy,timezone) {title,time->command("reminder/create",buildJsonObject { put("title",title); put("time",time) }) } }
+                        item {
+                            ReminderForm(state.busy,timezone,active=tab==1,createRepeat={title,time,repeat->
+                                command("reminder/create",buildJsonObject {put("title",title);put("time",time);put("repeat",deskJson.encodeToJsonElement(ReminderRepeat.serializer(),repeat))})
+                            }) {title,time->command("reminder/create",buildJsonObject {put("title",title);put("time",time)})}
+                        }
                         items(state.reminders,key={it.id}) { reminder -> ReminderCard(reminder,timezone,state.busy,reminder.id == focusedReminder,detail={detailReminderId=reminder.id}) {action,minutes->graph.perform { graph.action(reminder,action,minutes) }} }
                         if(state.reminders.isEmpty()) item { DeskCard("还没有待办提醒") { Text("想到一件事，就给它设个时间。") } }
                     }
@@ -295,7 +299,10 @@ class MainActivity: ComponentActivity() {
         else LaunchedEffect(value) {businessDetail=null;focusMessage="该事项已移除，已更新列表"}
     }
     detailReminder?.let {reminder->
-        ReminderDetailSheet(reminder,timezone,state.busy,onDismiss={detailReminderId=null}) {current,action,minutes->
+        ReminderDetailSheet(reminder,timezone,state.busy,onDismiss={detailReminderId=null},onRepeat={repeat->
+            command("reminder/repeat",buildJsonObject {put("id",reminder.id);put("revision",reminder.revision);put("repeat",deskJson.encodeToJsonElement(ReminderRepeat.serializer(),repeat))})
+            detailReminderId=null
+        }) {current,action,minutes->
             detailReminderId=null
             graph.perform {graph.action(current,action,minutes)}
         }
@@ -315,48 +322,65 @@ class MainActivity: ComponentActivity() {
     }
 }
 
-@Composable internal fun ReminderForm(busy: Boolean,timezone: String,create: (String,String)->Unit) {
+@Composable internal fun ReminderForm(busy: Boolean,timezone: String,active: Boolean=true,createRepeat: ((String,String,ReminderRepeat)->Unit)?=null,create: (String,String)->Unit) {
     val zone=remember(timezone) {ZoneId.of(timezone)}
-    val initial=remember(timezone) {Instant.now().atZone(zone)}
+    val initial=remember(timezone) {nextReminderMinute(Instant.now(),zone)}
     var clockMillis by remember(timezone) {mutableLongStateOf(System.currentTimeMillis())}
     var title by rememberSaveable {mutableStateOf("")}
     var dayEpoch by rememberSaveable(timezone) {mutableLongStateOf(initial.toLocalDate().toEpochDay())}
-    val initialClock=if(initial.plusMinutes(1).toLocalDate() == initial.toLocalDate()) initial.plusMinutes(1).toLocalTime() else java.time.LocalTime.of(23,59)
+    val initialClock=initial.toLocalTime()
     var hours by rememberSaveable(timezone) {mutableIntStateOf(initialClock.hour)}
     var minutes by rememberSaveable(timezone) {mutableIntStateOf(initialClock.minute)}
     var countdown by rememberSaveable {mutableStateOf(false)}
     var durationHours by rememberSaveable {mutableIntStateOf(0)}
     var durationMinutes by rememberSaveable {mutableIntStateOf(15)}
     var durationSeconds by rememberSaveable {mutableIntStateOf(0)}
+    var days by rememberSaveable {mutableStateOf(emptyList<Int>())}
+    var repeatPicker by remember {mutableStateOf(false)}
+    var reset by remember {mutableIntStateOf(0)}
+    var previouslyActive by rememberSaveable {mutableStateOf(active)}
+    LaunchedEffect(active,timezone) {
+        if(active && !previouslyActive) {
+            val fresh=nextReminderMinute(Instant.now(),zone)
+            dayEpoch=fresh.toLocalDate().toEpochDay();hours=fresh.hour;minutes=fresh.minute
+            clockMillis=System.currentTimeMillis();reset++
+        }
+        previouslyActive=active
+    }
     LaunchedEffect(timezone) {while(true) {kotlinx.coroutines.delay(30_000);clockMillis=System.currentTimeMillis()}}
     val today=Instant.ofEpochMilli(clockMillis).atZone(zone).toLocalDate()
     val selectedDate=java.time.LocalDate.ofEpochDay(dayEpoch.coerceAtLeast(today.toEpochDay()))
     val local=selectedDate.atTime(hours,minutes)
-    val selected=local.atZone(zone)
+    val repeat=if(!countdown && days.isNotEmpty()) ReminderRepeat(days,hours,minutes,timezone) else null
+    val selected=repeat?.next(Instant.ofEpochMilli(clockMillis))?.atZone(zone) ?: local.atZone(zone)
     val duration=durationHours*3600L+durationMinutes*60L+durationSeconds
-    val valid=if(countdown) duration > 0 else selected.toLocalDateTime() == local && selected.toInstant().isAfter(Instant.ofEpochMilli(clockMillis))
+    val valid=if(countdown) duration > 0 else if(repeat!=null) true else selected.toLocalDateTime() == local && selected.toInstant().isAfter(Instant.ofEpochMilli(clockMillis))
     DeskCard("") {
-        DeskTextField(title,{title=it},label={Text("提醒事项")},enabled=!busy,modifier=Modifier.fillMaxWidth())
-        key(countdown) {
+        DeskTextField(title,{title=it},label={Text("提醒事项（选填）")},placeholder={Text("留空默认为“提醒”")},enabled=!busy,modifier=Modifier.fillMaxWidth())
+        key(countdown,reset) {
             if(countdown) DeskCountdownPicker(durationHours,durationMinutes,durationSeconds,!busy,{durationHours=it},{durationMinutes=it},{durationSeconds=it})
             else DeskReminderTimePicker(today,(selectedDate.toEpochDay()-today.toEpochDay()).toInt(),hours,minutes,!busy,
-                {dayEpoch=today.plusDays(it.toLong()).toEpochDay()},{hours=it},{minutes=it})
+                {dayEpoch=today.plusDays(it.toLong()).toEpochDay()},{hours=it},{minutes=it},showDate=repeat==null)
         }
+        if(!countdown) TextButton({repeatPicker=true},enabled=!busy,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {Text("重复 · ${repeat?.label() ?: "仅一次"}")}
         Text(if(countdown) {
             if(valid) java.time.LocalTime.of(durationHours,durationMinutes,durationSeconds).format(DateTimeFormatter.ofPattern("HH:mm:ss"))+" 后提醒" else "请选择大于零的倒计时"
-        } else if(valid) local.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) else "请选择未来的有效时间",
+        } else if(valid) (if(repeat!=null) "下次：" else "")+selected.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) else "请选择未来的有效时间",
             modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center,
             style=MaterialTheme.typography.bodySmall,color=if(valid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             DeskOutlinedButton({countdown=!countdown},modifier=Modifier.weight(1f),enabled=!busy) {Text(if(countdown) "切换日期" else "切换倒计时")}
             DeskButton({
                 val now=Instant.now()
-                if(countdown && duration > 0) create(title,now.plusSeconds(duration).toString())
-                else if(!countdown && selected.toLocalDateTime() == local && selected.toInstant().isAfter(now)) create(title,selected.toInstant().toString())
+                val name=title.trim().ifBlank {"提醒"}
+                if(countdown && duration > 0) create(name,now.plusSeconds(duration).toString())
+                else if(repeat!=null && createRepeat!=null) createRepeat(name,repeat.next(now).toString(),repeat)
+                else if(!countdown && selected.toLocalDateTime() == local && selected.toInstant().isAfter(now)) create(name,selected.toInstant().toString())
                 else clockMillis=now.toEpochMilli()
-            },modifier=Modifier.weight(1f),enabled=!busy && title.isNotBlank() && valid) {Text("创建提醒")}
+            },modifier=Modifier.weight(1f),enabled=!busy && valid) {Text("创建提醒")}
         }
     }
+    if(repeatPicker) ReminderRepeatPicker(days,{repeatPicker=false},{days=it})
 }
 
 @Composable private fun NotificationSettings(graph: AppGraph,state: HomeState,notify: ()->Unit,exact: ()->Unit,settings: ()->Unit) {

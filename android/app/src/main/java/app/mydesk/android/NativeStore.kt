@@ -20,8 +20,9 @@ class NativeStore(context: Context, memory: Boolean = false) {
                        }
                    }).build()
     private val dao=db.desk()
-    val state=combine(dao.watchSnapshot(),dao.watchActions(),dao.watchReminders(),dao.watchInboxReads()) { snapshot, actions, reminders, reads ->
-        CacheState(snapshot?.let {applyInboxReads(deskJson.parseToJsonElement(it.json).jsonObject,reads.map {row->deskJson.parseToJsonElement(row.json).jsonObject})}, ReminderPolicy.visible(reminders.map { deskJson.decodeFromString(it.json) }, actions.map { deskJson.decodeFromString(it.json) }), actions.size+reads.size)
+    private val clock=flow {while(true) {emit(Instant.now());kotlinx.coroutines.delay(30_000)}}
+    val state=combine(dao.watchSnapshot(),dao.watchActions(),dao.watchReminders(),dao.watchInboxReads(),clock) { snapshot, actions, reminders, reads, now ->
+        CacheState(snapshot?.let {applyInboxReads(deskJson.parseToJsonElement(it.json).jsonObject,reads.map {row->deskJson.parseToJsonElement(row.json).jsonObject})}, ReminderPolicy.visible(reminders.map { deskJson.decodeFromString(it.json) }, actions.map { deskJson.decodeFromString(it.json) },now), actions.size+reads.size)
     }
     suspend fun accept(snapshot: String) = db.withTransaction {
         val data=deskJson.parseToJsonElement(snapshot).jsonObject
@@ -38,9 +39,11 @@ class NativeStore(context: Context, memory: Boolean = false) {
     }
     suspend fun visible(): List<Reminder> = ReminderPolicy.visible(dao.reminders().map { deskJson.decodeFromString(it.json) }, pending())
     suspend fun enqueue(id: String, revision: String, action: String, minutes: Int = 10): PendingAction = db.withTransaction {
-        require(action in setOf("complete","cancel","snooze") && minutes in setOf(10,30,60))
+        require(action in setOf("complete","cancel","snooze","pause","resume") && minutes in setOf(10,30,60))
         val reminder=visible().firstOrNull { it.id == id && it.revision == revision }
         require(reminder != null) { "提醒已更新或处理，请查看当前状态" }
+        // Persist a locally projected occurrence before queuing an action against its new revision.
+        dao.reminders(listOf(ReminderRow(reminder.id,deskJson.encodeToString(reminder))))
         val value=PendingAction(UUID.randomUUID().toString(),id,revision,action,minutes,Instant.now().toString())
         dao.action(ActionRow(operationId=value.operationId,json=deskJson.encodeToString(value)))
         value

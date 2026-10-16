@@ -13,6 +13,10 @@ NOW = datetime(2026, 10, 1, 8, tzinfo=timezone.utc)
 
 
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recurring_notification_button_uses_a_valid_occurrence_revision(self):
+        r = await self.runtime.command('reminder/create', dict(time='30分钟后', repeat=dict(days=list(range(1,8)), hour=17, minute=0, timezone='Asia/Shanghai')), NOW)
+        result = await self.runtime.notification_action(f"MYDESK:{r['id']}:{r['revision']}:complete", NOW)
+        self.assertTrue(result)
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.desk = Desk(Path(self.tmp.name) / 'desk.db')

@@ -8,7 +8,8 @@ import kotlinx.serialization.json.*
 
 @Serializable
 data class Reminder(val id: String, val title: String, @SerialName("remind_at") val remindAt: String,
-                    val status: String, val revision: String)
+                    val status: String, val revision: String,val repeat: ReminderRepeat?=null,
+                    @SerialName("scheduled_at") val scheduledAt: String?=null)
 
 @Serializable
 data class PendingAction(val operationId: String, val reminderId: String, val revision: String,
@@ -19,14 +20,17 @@ object ReminderPolicy {
         if (reminder.id != action.reminderId || reminder.revision != action.revision) return reminder
         return when (action.action) {
             "snooze" -> reminder.copy(remindAt=Instant.parse(action.occurredAt).plusSeconds(action.minutes * 60L).toString(), status="snoozed", revision="local:${action.operationId}")
-            "complete" -> reminder.copy(status="completed", revision="local:${action.operationId}")
+            "complete" -> if(reminder.repeat!=null) followingOccurrence(reminder,Instant.parse(action.occurredAt)).copy(revision="local:${action.operationId}") else reminder.copy(status="completed", revision="local:${action.operationId}")
+            "pause" -> reminder.copy(status="paused",revision="local:${action.operationId}")
+            "resume" -> reminder.repeat?.let {rule->val at=rule.next(Instant.parse(action.occurredAt));reminder.copy(status="pending",remindAt=at.toString(),scheduledAt=at.toString(),revision="local:${action.operationId}")} ?: reminder
             "cancel" -> reminder.copy(status="cancelled", revision="local:${action.operationId}")
             else -> error("无效提醒操作")
         }
     }
-    fun visible(reminders: List<Reminder>, actions: List<PendingAction>): List<Reminder> = reminders.map { r ->
-        actions.fold(r) { current, a -> project(current, a) }
-    }.filter { it.status in setOf("pending", "snoozed") }.sortedBy { Instant.parse(it.remindAt) }
+    fun visible(reminders: List<Reminder>, actions: List<PendingAction>,now: Instant=Instant.now()): List<Reminder> = reminders.map { r ->
+        // Apply queued actions before rolling forward so offline pause/cancel remains effective.
+        currentOccurrence(actions.fold(r) { current, a -> project(current, a) },now)
+    }.filter { it.status in setOf("pending", "snoozed","paused") }.sortedBy { Instant.parse(it.remindAt) }
     fun acknowledge(actions: List<PendingAction>, operationId: String, revision: String): List<PendingAction> =
         actions.filterNot { it.operationId == operationId }.map { if (it.revision == "local:$operationId") it.copy(revision=revision) else it }
     fun conflict(actions: List<PendingAction>, reminderId: String): List<PendingAction> = actions.filterNot { it.reminderId == reminderId }

@@ -50,7 +50,7 @@ class MainPageInteractionTest {
                     DeskMainPages(pager,Modifier.weight(1f).fillMaxWidth().testTag("pages"),enabled.value) {page->
                         LazyColumn(Modifier.fillMaxSize().testTag("list$page"),state=lists[page],contentPadding=PaddingValues(18.dp)) {
                             item {Text("页面$page")}
-                            if(page==1) item {ReminderForm(false,"Asia/Shanghai") {_,_->fail("UI fixture must not create reminders")}}
+                            if(page==1) item {ReminderForm(false,"Asia/Shanghai",active=finishedPage==1) {_,_->fail("UI fixture must not create reminders")}}
                             items(24) {Text("内容$page-$it",Modifier.fillMaxWidth().height(64.dp))}
                         }
                     }
@@ -89,7 +89,7 @@ class MainPageInteractionTest {
         var index=0;var offset=0
         compose.runOnIdle {index=listIndex;offset=listOffset;assertTrue(index>0 || offset>0)}
         swipe(true);assertPage(1)
-        compose.onNode(hasText("提醒事项") and hasSetTextAction()).performTextInput("保留提醒草稿")
+        compose.onNode(hasText("提醒事项（选填）") and hasSetTextAction()).performTextInput("保留提醒草稿")
         val minuteWheel=compose.onNodeWithContentDescription("分钟选择")
         minuteWheel.performSemanticsAction(SemanticsActions.SetProgress) {it(30f)}
         compose.waitForIdle()
@@ -103,7 +103,8 @@ class MainPageInteractionTest {
         compose.runOnIdle {assertEquals(index,listIndex);assertEquals(offset,listOffset)}
         swipe(true);assertPage(1)
         compose.onNode(hasSetTextAction() and hasText("保留提醒草稿")).assertExists()
-        assertEquals(selectedMinute,compose.onNodeWithContentDescription("分钟选择").fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        val nextMinute=java.time.Instant.now().plusSeconds(60).atZone(java.time.ZoneId.of("Asia/Shanghai")).minute
+        assertEquals("$nextMinute 分钟",compose.onNodeWithContentDescription("分钟选择").fetchSemanticsNode().config[SemanticsProperties.StateDescription])
     }
 
     @Test fun disabledSwipingAndShortDragDoNotChangePages() {

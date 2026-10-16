@@ -777,7 +777,7 @@ class AccessibleLayoutTest {
         compose.onNodeWithText("新建提醒").assertDoesNotExist()
         compose.onNodeWithText("多久后").assertDoesNotExist()
         compose.onNodeWithText("指定日期").assertDoesNotExist()
-        compose.onNode(hasText("提醒事项") and hasSetTextAction()).assertExists()
+        compose.onNode(hasText("提醒事项（选填）") and hasSetTextAction()).assertExists()
     }
 
     @Test fun dateAndClockWheelsRejectPastTodayButAcceptTomorrowMidnight() {

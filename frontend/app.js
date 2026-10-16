@@ -91,6 +91,7 @@ async function route() {
   for(const name of ['dashboard','reminders','settings'])$('#'+name).hidden=name!==page;
   document.querySelectorAll('[data-page]').forEach(link=>{if(link.dataset.page===page)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
   updateHeader();window.scrollTo({top:0,behavior:'instant'});
+  if(page==='reminders')document.querySelector('#reminders-desk')?.mountTime();
   if(page==='settings')try {await renderSettings({request,toast,logout,setAppearance,getAppearance:()=>appearance,session:sessionInfo});}catch(error){toast(error.message,true);}
 }
 document.querySelectorAll('[data-icon]').forEach(node=>node.insertAdjacentHTML('afterbegin',icon(node.dataset.icon)));

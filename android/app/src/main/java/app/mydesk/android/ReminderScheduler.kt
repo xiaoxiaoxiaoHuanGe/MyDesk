@@ -38,7 +38,11 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
                 notifications.cancel(id,1); prefs.edit().remove(key).apply()
             }
         }
-        val undelivered=reminders.filter { store.delivered(it.id) != it.revision }
+        val undelivered=reminders.filter {it.status in setOf("pending","snoozed")}.mapNotNull {
+            val current=currentOccurrence(it,Instant.now())
+            if(store.delivered(current.id)!=current.revision) current
+            else if(current.repeat!=null) followingOccurrence(current,Instant.now()) else null
+        }
         cancelScheduledAlarm()
         if (!notifications.areNotificationsEnabled() || notifications.getNotificationChannel("reminders")?.importance == NotificationManager.IMPORTANCE_NONE || (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) return@withLock
         val next=undelivered.minByOrNull { Instant.parse(it.remindAt) } ?: return@withLock
@@ -80,6 +84,7 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
             .addAction(Notification.Action.Builder(null,"完成",action("complete")).build())
             .addAction(Notification.Action.Builder(null,"延后…",action("snooze",choices=true)).addRemoteInput(snoozeInput).build())
             .addAction(Notification.Action.Builder(null,"打开",open).build()).build()
+        if(prefs.getString("shown:$id",null)?.let {it!=revision}==true) notifications.cancel(id,1)
         notifications.notify(id,1,notice)
         ReminderDiagnostics.event("notify_requested")
         prefs.edit().putString("shown:$id",revision).apply()

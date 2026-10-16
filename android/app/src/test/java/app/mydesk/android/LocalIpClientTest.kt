@@ -2,6 +2,8 @@ package app.mydesk.android
 
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.Dispatcher
@@ -11,6 +13,32 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class LocalIpClientTest {
+    @Test fun countryOnlyResultLooksUpTheExactDetectedIpWithoutChangingIt() = runBlocking {
+        val server=MockWebServer();server.start()
+        var lookupPath=""
+        val client=OkHttpClient.Builder().addInterceptor {chain->
+            if(chain.request().url.host=="ipwho.is") {
+                lookupPath=chain.request().url.encodedPath
+                okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                    .body("""{"success":true,"ip":"198.51.100.28","country":"美国","region":"加利福尼亚州","city":"洛杉矶"}""".toResponseBody("application/json".toMediaType())).build()
+            } else chain.proceed(chain.request())
+        }.build()
+        try {
+            server.enqueue(MockResponse().setBody("<div>198.51.100.28<br/>美国</div>"))
+            val result=LocalIpClient(client).fetch(LocalIpEndpoint("foreign","国外出口",server.url("/").toString()))
+            assertEquals("198.51.100.28",result.ip)
+            assertEquals("美国 · 加利福尼亚州 · 洛杉矶",result.location)
+            assertEquals("/198.51.100.28",lookupPath)
+        } finally {server.shutdown()}
+    }
+    @Test fun keepsAllLocationLinesReturnedByIp111() = runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            server.enqueue(MockResponse().setBody("<div>198.51.100.28<br/>美国<br/>加利福尼亚州<br/>洛杉矶</div>"))
+            val result=LocalIpClient().fetch(LocalIpEndpoint("foreign","国外出口",server.url("/").toString()))
+            assertEquals("美国 · 加利福尼亚州 · 洛杉矶",result.location)
+        } finally {server.shutdown()}
+    }
     @Test fun domesticQueryUsesACompatibleUserAgentInsteadOfTheRejectedOkHttpDefault() = runBlocking {
         val server=MockWebServer()
         server.dispatcher=object: Dispatcher() {

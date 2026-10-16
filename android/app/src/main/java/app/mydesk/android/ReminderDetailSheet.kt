@@ -18,9 +18,10 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun ReminderDetailSheet(reminder: Reminder,zone: String,busy: Boolean,onDismiss: ()->Unit,onAction: (Reminder,String,Int)->Unit) {
+@Composable internal fun ReminderDetailSheet(reminder: Reminder,zone: String,busy: Boolean,onDismiss: ()->Unit,onRepeat: ((ReminderRepeat)->Unit)?=null,onAction: (Reminder,String,Int)->Unit) {
     val sheet=rememberModalBottomSheetState(skipPartiallyExpanded=true)
     val scope=rememberCoroutineScope()
+    var editRepeat by remember {mutableStateOf(false)}
     DeskModalSheet(onDismissRequest=onDismiss,sheetState=sheet,modifier=Modifier.semantics {paneTitle="提醒详情"}) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -36,9 +37,10 @@ import androidx.compose.ui.text.font.FontWeight
                         DeskStateBadge(reminderStatusLabel(reminder))
                     }
                     Text(reminderTime(reminder.remindAt,zone,true),style=MaterialTheme.typography.bodyLarge)
+                    reminder.repeat?.let {Text("${it.label()} · ${it.timezone}",style=MaterialTheme.typography.bodyMedium)}
                 }
             }
-            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            if(reminder.status!="paused") Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text("稍后提醒",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf(10 to "10 分钟",30 to "30 分钟",60 to "1 小时").forEach {(minutes,label) ->
@@ -48,11 +50,20 @@ import androidx.compose.ui.text.font.FontWeight
                 }
             }
             HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+            if(reminder.repeat!=null) {
+                DeskOutlinedButton({onAction(reminder,if(reminder.status=="paused") "resume" else "pause",10)},enabled=!busy,modifier=Modifier.fillMaxWidth()) {Text(if(reminder.status=="paused") "恢复重复提醒" else "暂停重复提醒")}
+            }
+            if(onRepeat!=null) TextButton({editRepeat=true},enabled=!busy) {Text(if(reminder.repeat!=null) "修改重复频率" else "设置重复频率")}
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {
-                DeskButton({onAction(reminder,"complete",10)},enabled=!busy,modifier=Modifier.weight(1f)) {Text("完成提醒")}
+                if(reminder.status!="paused") DeskButton({onAction(reminder,"complete",10)},enabled=!busy,modifier=Modifier.weight(1f)) {Text(if(reminder.repeat!=null) "完成本次" else "完成提醒")}
                 DeskOutlinedButton({onAction(reminder,"cancel",10)},enabled=!busy,modifier=Modifier.weight(1f)) {Text("取消提醒")}
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+    if(editRepeat) {
+        val time=java.time.Instant.parse(reminder.remindAt).atZone(java.time.ZoneId.of(zone))
+        val rule=reminder.repeat ?: ReminderRepeat(emptyList(),time.hour,time.minute,zone)
+        ReminderRepeatPicker(rule.days,{editRepeat=false},{days->onRepeat?.invoke(rule.copy(days=days))},allowOnce=false)
     }
 }

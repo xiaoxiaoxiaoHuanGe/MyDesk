@@ -9,11 +9,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from .reminder_repeat import rule as repeat_rule, next_time, revision as occurrence_revision, decode as reminder_dict
 
 UTC = timezone.utc
 ACTIVE = ('pending', 'snoozed')
 JOB_ACTIVE = ('dispatching', 'queued', 'running', 'tracking_error')
 TASK_STATES = {'success', 'failed', 'running', 'warning', 'unknown'}
+REMINDERS = '''SELECT r.id,r.title,r.remind_at,r.status,r.created_at,r.completed_at,r.revision,r.notified_at,
+              recurrence.rule AS repeat,recurrence.scheduled_at FROM reminders r
+              LEFT JOIN reminder_recurrence recurrence ON recurrence.reminder_id=r.id'''
 
 
 def instant(value):
@@ -79,6 +83,8 @@ class Desk:
                 CREATE TABLE IF NOT EXISTS deliveries (
                     reminder_id TEXT, revision TEXT, target TEXT, delivered_at TEXT,
                     PRIMARY KEY(reminder_id, revision, target));
+                CREATE TABLE IF NOT EXISTS reminder_recurrence (
+                    reminder_id TEXT PRIMARY KEY, rule TEXT NOT NULL, scheduled_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS task_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE,
                     task_id TEXT, task_name TEXT, status TEXT, message TEXT,
@@ -89,6 +95,10 @@ class Desk:
                     id TEXT PRIMARY KEY, steps INTEGER, status TEXT, created_at TEXT,
                     run_id INTEGER, url TEXT, message TEXT);
             ''')
+            # Import only pre-release development databases; production retains its original eight columns.
+            columns = {r[1] for r in db.execute('PRAGMA table_info(reminders)')}
+            if {'repeat', 'scheduled_at'} <= columns:
+                db.execute('INSERT OR IGNORE INTO reminder_recurrence SELECT id,repeat,scheduled_at FROM reminders WHERE repeat IS NOT NULL')
 
     @contextmanager
     def connect(self):
@@ -100,19 +110,45 @@ class Desk:
         finally:
             db.close()
 
-    def create_reminder(self, title, remind_at, now):
-        title = text_field(title, '提醒内容', 200)
+    def create_reminder(self, title, remind_at, now, repeat=None):
+        title = text_field('提醒' if title is None or isinstance(title, str) and not title.strip() else title, '提醒内容', 200)
+        repeat = repeat_rule(repeat)
+        if repeat:
+            remind_at = next_time(repeat, instant(now))
         if instant(remind_at) <= instant(now):
             raise ValueError('提醒时间必须在未来')
         item = dict(id=uuid4().hex, title=title, remind_at=stamp(remind_at), status='pending',
-                    created_at=stamp(now), completed_at=None, revision=uuid4().hex, notified_at=None)
+                    created_at=stamp(now), completed_at=None, revision=occurrence_revision(repeat, instant(remind_at)) if repeat else uuid4().hex, notified_at=None,
+                    repeat=json.dumps(repeat) if repeat else None, scheduled_at=stamp(remind_at))
         with self.connect() as db:
-            db.execute('INSERT INTO reminders VALUES (:id,:title,:remind_at,:status,:created_at,:completed_at,:revision,:notified_at)', item)
-        return item
+            db.execute('INSERT INTO reminders (id,title,remind_at,status,created_at,completed_at,revision,notified_at) VALUES (:id,:title,:remind_at,:status,:created_at,:completed_at,:revision,:notified_at)', item)
+            if repeat:
+                db.execute('INSERT INTO reminder_recurrence VALUES (?,?,?)', (item['id'], item['repeat'], item['scheduled_at']))
+        return reminder_dict(item)
+
+    def _roll_repeats(self, db, now):
+        for row in db.execute(REMINDERS+" WHERE recurrence.rule IS NOT NULL AND status IN ('pending','snoozed')").fetchall():
+            item = reminder_dict(row)
+            scheduled = instant(item['scheduled_at'])
+            following = next_time(item['repeat'], scheduled)
+            if following > instant(now):
+                continue
+            # Keep only the latest due occurrence after downtime, without a burst of missed alarms.
+            local = instant(now).astimezone(ZoneInfo(item['repeat']['timezone']))
+            latest = next_time(item['repeat'], (local - timedelta(days=8)).astimezone(UTC))
+            while True:
+                following = next_time(item['repeat'], latest)
+                if following > instant(now):
+                    break
+                latest = following
+            db.execute("UPDATE reminders SET remind_at=?,status='pending',revision=?,notified_at=NULL WHERE id=?",
+                       (stamp(latest), occurrence_revision(item['repeat'], latest), item['id']))
+            db.execute('UPDATE reminder_recurrence SET scheduled_at=? WHERE reminder_id=?', (stamp(latest), item['id']))
 
     def due_reminders(self, now):
         with self.connect() as db:
-            return [dict(r) for r in db.execute("SELECT * FROM reminders WHERE status IN ('pending','snoozed') AND remind_at <= ? AND notified_at IS NULL ORDER BY remind_at", (stamp(now),))]
+            self._roll_repeats(db, now)
+            return [reminder_dict(r) for r in db.execute(REMINDERS+" WHERE status IN ('pending','snoozed') AND remind_at <= ? AND notified_at IS NULL ORDER BY remind_at", (stamp(now),))]
 
     def delivery_targets(self, reminder_id, targets):
         with self.connect() as db:
@@ -138,12 +174,23 @@ class Desk:
             return self._reminder_action(db,reminder_id,action,now,minutes,revision)
 
     def _reminder_action(self,db,reminder_id,action,now,minutes=10,revision=None):
-        row = db.execute('SELECT * FROM reminders WHERE id=?', (reminder_id,)).fetchone()
-        if not row or row['status'] not in ACTIVE:
+        self._roll_repeats(db, now)
+        row = db.execute(REMINDERS+' WHERE r.id=?', (reminder_id,)).fetchone()
+        if not row or row['status'] not in (*ACTIVE, 'paused'):
             raise ValueError('提醒已处理或不存在')
         if revision and revision != row['revision']:
             raise ValueError('这条通知已失效，请打开最新提醒')
-        if action == 'snooze':
+        repeat = reminder_dict(row)['repeat']
+        if action == 'pause' and repeat and row['status'] in ACTIVE:
+            db.execute("UPDATE reminders SET status='paused',revision=? WHERE id=?", (uuid4().hex, reminder_id))
+        elif repeat and ((action == 'resume' and row['status'] == 'paused') or (action == 'complete' and row['status'] in ACTIVE)):
+            following = next_time(repeat, max(instant(now), instant(row['scheduled_at']))) if action == 'complete' else next_time(repeat, instant(now))
+            db.execute("UPDATE reminders SET status='pending',remind_at=?,revision=?,notified_at=NULL WHERE id=?",
+                       (stamp(following), occurrence_revision(repeat, following), reminder_id))
+            db.execute('UPDATE reminder_recurrence SET scheduled_at=? WHERE reminder_id=?', (stamp(following), reminder_id))
+        elif row['status'] == 'paused' and action != 'cancel':
+            raise ValueError('请先恢复重复提醒')
+        elif action == 'snooze':
             if type(minutes) is not int or minutes not in (10, 30, 60):
                 raise ValueError('稍后提醒支持 10、30、60 分钟')
             db.execute("UPDATE reminders SET status='snoozed',remind_at=?,revision=?,notified_at=NULL WHERE id=?",
@@ -152,7 +199,23 @@ class Desk:
             db.execute('UPDATE reminders SET status=?,completed_at=? WHERE id=?',
                        ('completed' if action == 'complete' else 'cancelled', stamp(now), reminder_id))
         else:raise ValueError('不支持的提醒操作')
-        return dict(db.execute('SELECT * FROM reminders WHERE id=?', (reminder_id,)).fetchone())
+        return reminder_dict(db.execute(REMINDERS+' WHERE r.id=?', (reminder_id,)).fetchone())
+
+    def update_reminder_repeat(self, reminder_id, revision, repeat, now):
+        value = repeat_rule(repeat)
+        if value is None:
+            raise ValueError('请选择重复日期')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._roll_repeats(db, now)
+            row = db.execute(REMINDERS+" WHERE r.id=? AND revision=? AND status IN ('pending','snoozed','paused')", (reminder_id, revision)).fetchone()
+            if not row:
+                raise ValueError('提醒已更新，请重新打开详情')
+            when = next_time(value, instant(now))
+            db.execute('INSERT INTO reminder_recurrence VALUES (?,?,?) ON CONFLICT(reminder_id) DO UPDATE SET rule=excluded.rule,scheduled_at=excluded.scheduled_at', (reminder_id, json.dumps(value), stamp(when)))
+            db.execute("UPDATE reminders SET remind_at=?,revision=?,notified_at=NULL,status=? WHERE id=?",
+                       (stamp(when), occurrence_revision(value, when), 'paused' if row['status'] == 'paused' else 'pending', reminder_id))
+            return reminder_dict(db.execute(REMINDERS+' WHERE r.id=?', (reminder_id,)).fetchone())
 
     def report_task(self, event, now):
         data = {k: text_field(event.get(k), k, 200 if k != 'message' else 2000)
@@ -238,14 +301,15 @@ class Desk:
     def snapshot(self, now, expected_tasks=None, stale_seconds=180):
         now = instant(now)
         with self.connect() as db:
-            reminders = [dict(r) for r in db.execute("SELECT * FROM reminders WHERE status IN ('pending','snoozed') ORDER BY remind_at")]
+            self._roll_repeats(db, now)
+            reminders = [reminder_dict(r) for r in db.execute(REMINDERS+" WHERE status IN ('pending','snoozed','paused') ORDER BY remind_at")]
             tasks = [dict(r) for r in db.execute('SELECT e.* FROM task_events e WHERE e.id=(SELECT t.id FROM task_events t WHERE t.task_id=e.task_id ORDER BY timestamp DESC,id DESC LIMIT 1) ORDER BY task_id')]
             feeds = {r['name']: {'data': json.loads(r['data']), 'updated_at': r['updated_at'],
                      'stale': (now - instant(r['updated_at'])).total_seconds() > stale_seconds} for r in db.execute('SELECT * FROM feeds')}
             job = db.execute('SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT 1').fetchone()
         attention = []
         for reminder in reminders:
-            if instant(reminder['remind_at']) <= now:
+            if reminder['status'] in ACTIVE and instant(reminder['remind_at']) <= now:
                 attention.append(dict(kind='reminder', id=reminder['id'], title=reminder['title'], message='已到提醒时间'))
         by_id = {t['task_id']: t for t in tasks}
         for task_id, config in (expected_tasks or {}).items():
