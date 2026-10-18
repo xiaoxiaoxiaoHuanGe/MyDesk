@@ -66,11 +66,22 @@ import kotlin.math.roundToInt
         }
     }
     val selected by remember {derivedStateOf {if(cyclic) Math.floorMod(selectedIndex,count) else selectedIndex}}
+    var syncing by remember {mutableStateOf(false)}
     LaunchedEffect(value) {
-        if(!list.isScrollInProgress && selected!=value) list.scrollToItem(if(cyclic) selectedIndex-selected+value else value)
+        if(!list.isScrollInProgress && selected!=value) {
+            syncing=true
+            try {
+                val delta=if(cyclic) Math.floorMod(value-selected+count/2,count)-count/2 else value-selectedIndex
+                list.animateScrollToItem((selectedIndex+delta).coerceAtLeast(0))
+            } finally {syncing=false}
+        }
     }
     LaunchedEffect(list) {
-        snapshotFlow {selected}.distinctUntilChanged().collect {currentChange(it)}
+        var userScrolling=false
+        snapshotFlow {Triple(selected,list.isScrollInProgress,syncing)}.distinctUntilChanged().collect {(number,scrolling,automatic)->
+            if(!automatic && (scrolling || userScrolling)) currentChange(number)
+            userScrolling=!automatic && scrolling
+        }
     }
     Column(modifier,horizontalAlignment=Alignment.CenterHorizontally) {
         Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -81,7 +92,11 @@ import kotlin.math.roundToInt
             if(!enabled) disabled()
             setProgress {requested ->
                 if(!enabled || !requested.isFinite()) false
-                else {scope.launch {val target=requested.roundToInt().coerceIn(0,maximum);list.scrollToItem(if(cyclic) selectedIndex-selected+target else target)};true}
+                else {scope.launch {
+                    syncing=true
+                    try {val target=requested.roundToInt().coerceIn(0,maximum);list.scrollToItem(if(cyclic) selectedIndex-selected+target else target);currentChange(target)}
+                    finally {syncing=false}
+                };true}
             }
         }) {
             HorizontalDivider(Modifier.align(Alignment.TopCenter).padding(top=rowHeight),color=MaterialTheme.colorScheme.outlineVariant)
@@ -90,7 +105,7 @@ import kotlin.math.roundToInt
                 flingBehavior=rememberSnapFlingBehavior(list),userScrollEnabled=enabled) {
                 items(if(cyclic) 1_000_000 else count,key={it}) {index ->
                     val number=if(cyclic) index%count else index
-                    Box(Modifier.fillMaxWidth().height(rowHeight).clickable(enabled=enabled) {scope.launch {list.animateScrollToItem(index)}},contentAlignment=Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().height(rowHeight).clickable(enabled=enabled) {scope.launch {syncing=true;try {list.animateScrollToItem(index);currentChange(number)} finally {syncing=false}}},contentAlignment=Alignment.Center) {
                         Text(display(number),fontSize=textSize,maxLines=1,
                             fontWeight=if(number == selected) FontWeight.SemiBold else FontWeight.Normal,
                             color=if(number == selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.45f))

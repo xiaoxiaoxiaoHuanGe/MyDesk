@@ -20,8 +20,10 @@ import androidx.compose.ui.unit.dp
             }
         }) {
             state.exits.forEach {result->LocalIpExitRow(result)}
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
             state.updatedAt?.let {Text("更新于 ${date(it.toString(),zone)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             Text("检测位置：当前设备",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

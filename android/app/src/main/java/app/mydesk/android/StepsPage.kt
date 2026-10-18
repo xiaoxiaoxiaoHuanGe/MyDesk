@@ -47,9 +47,9 @@ import kotlinx.serialization.json.*
         if(busy) item {LinearProgressIndicator(Modifier.fillMaxWidth())}
         when(section) {
             0->item {
-                DeskCard("自动任务",headerAction={TextButton({onSection(2)}) {Text("关闭")}}) {
+                DeskCard("") {
                     if(snapshot.obj("configured").text("github")!="true") Text("请先在设置中连接步数工作流",style=MaterialTheme.typography.bodySmall)
-                    StepPlanEditor(plan,busy,snapshot.obj("configured").text("github")=="true",command)
+                    StepPlanEditor(plan,busy,snapshot.obj("configured").text("github")=="true",command,onClose={onSection(2)})
                 }
             }
             1->item {StepsCard(snapshot,busy,command) {onSection(0)}}

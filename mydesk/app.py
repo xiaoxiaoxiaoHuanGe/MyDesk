@@ -193,7 +193,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
 
     async def inbox_page(request):
         query=request.query
-        result=await asyncio.to_thread((await runtime()).inbox.page,int(query.get('limit','50')),int(query['before']) if 'before' in query else None,query.get('source_id'),now_utc())
+        if query.get("archived","false") not in ("true","false"):raise ValueError("归档筛选无效")
+        result=await asyncio.to_thread((await runtime()).inbox.page,int(query.get('limit','50')),int(query['before']) if 'before' in query else None,query.get('source_id'),now_utc(),archived=query.get('archived','false')=='true')
         return web.json_response(result)
 
     async def inbox_detail(request):
@@ -201,6 +202,11 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
 
     async def inbox_read(request):
         result=await asyncio.to_thread((await runtime()).inbox.read,await request.json(),now_utc())
+        await (await runtime()).publish()
+        return web.json_response(result)
+
+    async def inbox_archive(request):
+        result=await asyncio.to_thread((await runtime()).inbox.archive,await request.json(),now_utc())
         await (await runtime()).publish()
         return web.json_response(result)
 
@@ -508,6 +514,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     app.router.add_post('/api/incoming/feishu/{source:[a-f0-9]{32}}/{secret:[a-f0-9]{64}}',incoming_text)
     app.router.add_get('/api/inbox',inbox_page)
     app.router.add_post('/api/inbox/read',inbox_read)
+    app.router.add_post('/api/inbox/archive',inbox_archive)
     app.router.add_get('/api/inbox/{message}',inbox_detail)
     app.router.add_get('/api/app-update',app_update)
     app.router.add_get('/api/app-update/artifacts/{artifact}.apk',app_artifact)

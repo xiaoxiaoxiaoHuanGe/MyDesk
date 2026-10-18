@@ -37,6 +37,8 @@ class Inbox:
                 CREATE TABLE IF NOT EXISTS inbox_rate(source_id TEXT NOT NULL,received_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS inbox_rate_source ON inbox_rate(source_id,received_at);
             ''')
+            if 'archived_at' not in {r[1] for r in db.execute('PRAGMA table_info(inbox_messages)')}:
+                db.execute('ALTER TABLE inbox_messages ADD COLUMN archived_at TEXT')
     def sources(self):
         with self.desk.connect() as db:
             return [dict(r) for r in db.execute('SELECT id,name,kind,enabled,last_received_at FROM notification_sources WHERE deleted_at IS NULL ORDER BY rowid')]
@@ -96,11 +98,12 @@ class Inbox:
                 db.execute('DELETE FROM native_deliveries WHERE event_id=?',(dispatch['event_id'],))
                 db.execute('DELETE FROM native_events WHERE id=?',(dispatch['event_id'],))
             db.execute('DELETE FROM inbox_dispatch WHERE message_id=?',(identifier,));db.execute('DELETE FROM inbox_messages WHERE id=?',(identifier,))
-    def page(self,limit=50,before=None,source_id=None,now=None):
+    def page(self,limit=50,before=None,source_id=None,now=None,archived=False):
+        if type(archived) is not bool:raise ValueError('归档筛选无效')
         if type(limit) is not int or not 1<=limit<=100 or (before is not None and (type(before) is not int or before<1)) or (source_id is not None and (not isinstance(source_id,str) or not ID.fullmatch(source_id))):raise ValueError('分页参数无效')
         with self.desk.connect() as db:
             if now:self._prune(db,now)
-            rows=[dict(r) for r in db.execute('SELECT * FROM inbox_messages WHERE (? IS NULL OR seq<?) AND (? IS NULL OR source_id=?) ORDER BY seq DESC LIMIT ?', (before,before,source_id,source_id,limit))]
+            rows=[dict(r) for r in db.execute('SELECT * FROM inbox_messages WHERE (archived_at IS NOT NULL)=? AND (? IS NULL OR seq<?) AND (? IS NULL OR source_id=?) ORDER BY seq DESC LIMIT ?', (archived,before,before,source_id,source_id,limit))]
         for row in rows:row['summary']=row['body'][:500];row.pop('idempotency_key',None)
         return {'items':rows,'next_cursor':rows[-1]['seq'] if len(rows)==limit else None}
     def detail(self,identifier):
@@ -118,12 +121,19 @@ class Inbox:
                 db.execute('UPDATE inbox_messages SET read_at=COALESCE(read_at,?) WHERE seq<=?',(stamp(now),through))
             else:raise ValueError('已读范围无效')
         return {'saved':True}
+    def archive(self,data,now):
+        ids=data.get('ids');archived=data.get('archived')
+        if type(archived) is not bool or not isinstance(ids,list) or not 1<=len(ids)<=100 or any(not isinstance(i,str) or not ID.fullmatch(i) for i in ids):raise ValueError('归档范围无效')
+        with self.desk.connect() as db:
+            for identifier in ids:
+                db.execute('UPDATE inbox_messages SET archived_at=?,read_at=COALESCE(read_at,?) WHERE id=?',(stamp(now) if archived else None,stamp(now),identifier))
+        return {'saved':True}
     def snapshot(self,now):
         with self.desk.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self._prune(db,now)
-            recent=[dict(r) for r in db.execute('SELECT seq,id,source_id,source_name,title,received_at,read_at,substr(body,1,500) AS summary FROM inbox_messages ORDER BY seq DESC LIMIT 3')]
-            unread=db.execute('SELECT COUNT(*) FROM inbox_messages WHERE read_at IS NULL').fetchone()[0]
+            recent=[dict(r) for r in db.execute('SELECT seq,id,source_id,source_name,title,received_at,read_at,archived_at,substr(body,1,500) AS summary FROM inbox_messages WHERE archived_at IS NULL ORDER BY seq DESC LIMIT 3')]
+            unread=db.execute('SELECT COUNT(*) FROM inbox_messages WHERE read_at IS NULL AND archived_at IS NULL').fetchone()[0]
             latest=db.execute('SELECT COALESCE(MAX(seq),0) FROM inbox_messages').fetchone()[0]
             sources=[dict(r) for r in db.execute('SELECT id,name,kind,enabled,last_received_at FROM notification_sources WHERE deleted_at IS NULL ORDER BY rowid')]
-        return {'supported':True,'recent':recent,'unread':unread,'latest_seq':latest,'sources':sources}
+        return {'archive_supported':True,'supported':True,'recent':recent,'unread':unread,'latest_seq':latest,'sources':sources}

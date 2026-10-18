@@ -17,18 +17,18 @@ internal class BackgroundReceiving(private val context: Context,private val auth
     private fun permitted(): Boolean {
         DeskNotificationChannels.create(context)
         val manager=context.getSystemService(NotificationManager::class.java)
-        return manager.areNotificationsEnabled() && manager.getNotificationChannel(DeskNotificationChannels.RECEIVER)?.importance!=NotificationManager.IMPORTANCE_NONE
+        return manager.areNotificationsEnabled()
     }
     @Synchronized fun enable(value: Boolean) {
         if(value && !authenticated()) {failed("请先登录再开启后台接收");return}
-        if(value && !permitted()) {failed("请先开启手机通知和后台接收状态通知");return}
+        if(value && !permitted()) {failed("请先开启手机消息通知");return}
         check(prefs.edit().putBoolean("enabled",value).commit()) {"后台接收设置未能保存，请重试"}
         mutable.update {it.copy(enabled=value,error="")}
         if(value) startIfEnabled() else suspendReceiving()
     }
     @Synchronized fun startIfEnabled() {
         if(!state.value.enabled || !authenticated() || state.value.active || state.value.starting) return
-        if(!permitted()) {failed("请先开启手机通知和后台接收状态通知");return}
+        if(!permitted()) {failed("请先开启手机消息通知");return}
         mutable.update {it.copy(starting=true,error="")}
         try {context.startForegroundService(Intent(context,BackgroundReceiveService::class.java))}
         catch(_: RuntimeException) {failed("后台接收未能启动，请在 APP 前台重试")}

@@ -36,7 +36,7 @@ import kotlinx.serialization.json.JsonObject
     Text(text,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-@Composable internal fun InboxMessageCard(row: JsonObject,zone: String,onOpen: ()->Unit) {
+@Composable internal fun InboxMessageCard(row: JsonObject,zone: String,compact: Boolean=false,onOpen: ()->Unit) {
     Surface(onClick=onOpen,shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -44,7 +44,7 @@ import kotlinx.serialization.json.JsonObject
                 if(row.text("read_at","").isBlank()) DeskStateBadge("未读")
             }
             val summary=row.text("summary","")
-            if(summary.isNotBlank()) Text(summary,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+            if(!compact && summary.isNotBlank()) Text(summary,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
                     InboxHint(row.text("source_name"))

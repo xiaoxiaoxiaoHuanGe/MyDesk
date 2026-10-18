@@ -30,7 +30,7 @@ import kotlinx.serialization.json.*
 @Composable internal fun ServerCard(snapshot: JsonObject,zone: String) {
     val feed=snapshot.obj("feeds").obj("servers")
     var selected by remember { mutableStateOf<JsonObject?>(null) }
-    DeskCard("服务器") {
+    DeskCard("服务器",headerAction={FeedUpdatedAt(feed,zone)}) {
         when {
             snapshot.obj("configured").text("servers") != "true" -> Text("服务器监控尚未接入，在设置中添加 1Panel 服务器。")
             feed.obj("data")["error"] != null -> Text(feed.obj("data").text("error"))
@@ -45,7 +45,6 @@ import kotlinx.serialization.json.*
                 }
             }
         }
-        if(feed["updated_at"] != null) Text("${if(feed.text("stale") == "true") "数据已过期 · " else "更新于 "}${date(feed.text("updated_at"),zone)}",style=MaterialTheme.typography.bodySmall)
     }
     selected?.let {server -> ServerDetail(server,zone) {selected=null}}
 }
@@ -130,7 +129,7 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
 @Composable internal fun NetworkCard(snapshot: JsonObject,zone: String) {
     val feed=snapshot.obj("feeds").obj("network")
     val data=feed.obj("data")
-    DeskCard("网络") {
+    DeskCard("网络",headerAction={FeedUpdatedAt(feed,zone)}) {
         when {
             snapshot.obj("configured").text("network") != "true" -> Text("网络检测尚未启用")
             data["error"] != null -> Text(data.text("error"))
@@ -141,7 +140,6 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
                 data.rows("nodes").forEach { node -> Text("${node.text("name")} · ${when(node.text("online")) {"true"->"可达"; "false"->"不可达"; else->"未知"}} · ${node.text("ping")} ms") }
             }
         }
-        if(feed["updated_at"] != null) Text("${if(feed.text("stale") == "true") "数据已过期 · " else "更新于 "}${date(feed.text("updated_at"),zone)}",style=MaterialTheme.typography.bodySmall)
         Text("检测位置：运行 MyDesk 的电脑或服务器",style=MaterialTheme.typography.bodySmall)
     }
 }
@@ -249,4 +247,9 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
         if(section=="github_all") GitHubTaskSettings(settings,busy,save,onClose={section=""},checkTask=checkTask,feedback=feedback)
         else MultiServiceSettings(section=="gmail_accounts",settings,busy,save,onClose={section=""},feedback=feedback,check=checkService)
     }
+}
+
+@Composable private fun FeedUpdatedAt(feed: JsonObject,zone: String) {
+    if(feed["updated_at"]!=null) Text("${if(feed.text("stale")=="true") "已过期 · " else "更新于 "}${date(feed.text("updated_at"),zone)}",
+        style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -62,6 +62,17 @@ class BackgroundReceivingTest {
         assertNull(shadowOf(context).nextStartedService)
         assertFalse(receiving.attached())
     }
+    @Test fun hiddenStatusChannelStillAllowsReception() {
+        clear()
+        val context=RuntimeEnvironment.getApplication()
+        val manager=context.getSystemService(NotificationManager::class.java)
+        shadowOf(manager).setNotificationsEnabled(true)
+        manager.createNotificationChannel(android.app.NotificationChannel(DeskNotificationChannels.RECEIVER,"后台接收状态",NotificationManager.IMPORTANCE_NONE))
+        val receiving=BackgroundReceiving(context,{true},{})
+        receiving.enable(true)
+        assertTrue(receiving.state.value.enabled)
+        assertTrue(receiving.attached())
+    }
     @Test fun statusNotificationIsSilentPrivateOngoingAndHasAStopAction() {
         val context=RuntimeEnvironment.getApplication()
         val notification=BackgroundReceiveService.notification(context,false)

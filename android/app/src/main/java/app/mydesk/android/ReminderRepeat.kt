@@ -49,3 +49,6 @@ internal fun followingOccurrence(reminder: Reminder,after: Instant): Reminder {
     val whenNext=repeat.next(maxOf(after,Instant.parse(reminder.scheduledAt ?: reminder.remindAt)))
     return reminder.copy(remindAt=whenNext.toString(),scheduledAt=whenNext.toString(),status="pending",revision=repeat.revision(whenNext))
 }
+
+internal fun reminderDraftTime(selected: LocalDateTime,manual: Boolean,now: Instant,zone: ZoneId): LocalDateTime =
+    if(manual) selected else nextReminderMinute(now,zone).toLocalDateTime()

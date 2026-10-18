@@ -22,6 +22,28 @@ class InboxTests(unittest.TestCase):
         self.secret=self.source['receive_path'].split('/')[-1]
     def receive(self,key='a'*64,body=PAYLOAD,now=NOW,source=None,secret=None):
         return self.inbox.receive(source or self.source['id'],secret or self.secret,body,key,now)
+    def test_archive_hides_from_recent_and_unread_but_can_be_restored(self):
+        self.receive()
+        row=self.inbox.page()['items'][0]
+        self.inbox.archive({'ids':[row['id']],'archived':True},NOW)
+        self.assertEqual(self.inbox.page()['items'],[])
+        self.assertEqual(self.inbox.snapshot(NOW)['recent'],[])
+        self.assertEqual(self.inbox.snapshot(NOW)['unread'],0)
+        self.assertEqual(self.inbox.page(archived=True)['items'][0]['id'],row['id'])
+        self.assertEqual(Inbox(self.desk).detail(row['id'])['body'],TEXT)
+        self.inbox.archive({'ids':[row['id']],'archived':False},NOW)
+        self.assertEqual(self.inbox.page()['items'][0]['id'],row['id'])
+        self.assertEqual(self.inbox.snapshot(NOW)['unread'],0)
+    def test_archive_rejects_invalid_scope_and_paginates_independently(self):
+        for data in ({'ids':['bad'],'archived':True},{'ids':[],'archived':True},{'ids':['a'*32],'archived':'true'}):
+            with self.assertRaises(ValueError):self.inbox.archive(data,NOW)
+        for i in range(4):self.receive(f'{i:064x}')
+        rows=self.inbox.page()['items']
+        self.inbox.archive({'ids':[r['id'] for r in rows[:3]],'archived':True},NOW)
+        first=self.inbox.page(limit=2,archived=True)
+        second=self.inbox.page(limit=2,before=first['next_cursor'],archived=True)
+        self.assertEqual(len(first['items'])+len(second['items']),3)
+        self.assertEqual(len(self.inbox.page()['items']),1)
     def test_concurrent_retries_commit_one_message_and_dispatch(self):
         with ThreadPoolExecutor(max_workers=8) as pool:results=list(pool.map(lambda _:self.receive(),range(20)))
         self.assertEqual(sum(results),1)
@@ -76,6 +98,18 @@ class InboxApiTests(unittest.IsolatedAsyncioTestCase):
         self.headers={'X-MyDesk-CSRF':(await r.json())['csrf']}
         r=await self.client.post('/api/notification-sources',headers=self.headers,json={'name':'CPE','kind':'cpe'});self.source=await r.json()
     async def asyncTearDown(self):await self.client.close();self.tmp.cleanup()
+    async def test_archive_api_filters_and_restores_with_csrf_protection(self):
+        await self.client.post(self.source['receive_path'],json=PAYLOAD,headers={'Idempotency-Key':'a'*64})
+        row=(await (await self.client.get('/api/inbox')).json())['items'][0]
+        payload={'ids':[row['id']],'archived':True}
+        self.assertEqual((await self.client.post('/api/inbox/archive',json=payload)).status,403)
+        response=await self.client.post('/api/inbox/archive',json=payload,headers=self.headers)
+        self.assertEqual(response.status,200)
+        self.assertEqual((await (await self.client.get('/api/inbox')).json())['items'],[])
+        self.assertEqual((await (await self.client.get('/api/inbox?archived=true')).json())['items'][0]['id'],row['id'])
+        response=await self.client.post('/api/inbox/archive',json={**payload,'archived':False},headers=self.headers)
+        self.assertEqual(response.status,200)
+        self.assertEqual(len((await (await self.client.get('/api/inbox')).json())['items']),1)
     async def test_exact_uploaded_sender_protocol_sample(self):
         import re
         protocol=(Path(__file__).resolve().parents[1]/'docs/CPE_WEBHOOK_PROTOCOL_REFERENCE.md').read_text(encoding='utf-8')

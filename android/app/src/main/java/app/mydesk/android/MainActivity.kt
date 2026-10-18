@@ -338,20 +338,27 @@ class MainActivity: ComponentActivity() {
     var days by rememberSaveable {mutableStateOf(emptyList<Int>())}
     var repeatPicker by remember {mutableStateOf(false)}
     var reset by remember {mutableIntStateOf(0)}
+    var manualTime by rememberSaveable(timezone) {mutableStateOf(false)}
     var previouslyActive by rememberSaveable {mutableStateOf(active)}
     LaunchedEffect(active,timezone) {
         if(active && !previouslyActive) {
             val fresh=nextReminderMinute(Instant.now(),zone)
             dayEpoch=fresh.toLocalDate().toEpochDay();hours=fresh.hour;minutes=fresh.minute
-            clockMillis=System.currentTimeMillis();reset++
+            clockMillis=System.currentTimeMillis();manualTime=false;reset++
         }
         previouslyActive=active
     }
-    LaunchedEffect(timezone) {while(true) {kotlinx.coroutines.delay(30_000);clockMillis=System.currentTimeMillis()}}
+    LaunchedEffect(active,timezone) {
+        while(active) {
+            clockMillis=System.currentTimeMillis()
+            kotlinx.coroutines.delay(60_000-clockMillis%60_000)
+        }
+    }
     val today=Instant.ofEpochMilli(clockMillis).atZone(zone).toLocalDate()
     val selectedDate=java.time.LocalDate.ofEpochDay(dayEpoch.coerceAtLeast(today.toEpochDay()))
-    val local=selectedDate.atTime(hours,minutes)
-    val repeat=if(!countdown && days.isNotEmpty()) ReminderRepeat(days,hours,minutes,timezone) else null
+    val local=reminderDraftTime(selectedDate.atTime(hours,minutes),manualTime,Instant.ofEpochMilli(clockMillis),zone)
+    fun freezeTime() {dayEpoch=local.toLocalDate().toEpochDay();hours=local.hour;minutes=local.minute;manualTime=true}
+    val repeat=if(!countdown && days.isNotEmpty()) ReminderRepeat(days,local.hour,local.minute,timezone) else null
     val selected=repeat?.next(Instant.ofEpochMilli(clockMillis))?.atZone(zone) ?: local.atZone(zone)
     val duration=durationHours*3600L+durationMinutes*60L+durationSeconds
     val valid=if(countdown) duration > 0 else if(repeat!=null) true else selected.toLocalDateTime() == local && selected.toInstant().isAfter(Instant.ofEpochMilli(clockMillis))
@@ -359,23 +366,29 @@ class MainActivity: ComponentActivity() {
         DeskTextField(title,{title=it},label={Text("提醒事项（选填）")},placeholder={Text("留空默认为“提醒”")},enabled=!busy,modifier=Modifier.fillMaxWidth())
         key(countdown,reset) {
             if(countdown) DeskCountdownPicker(durationHours,durationMinutes,durationSeconds,!busy,{durationHours=it},{durationMinutes=it},{durationSeconds=it})
-            else DeskReminderTimePicker(today,(selectedDate.toEpochDay()-today.toEpochDay()).toInt(),hours,minutes,!busy,
-                {dayEpoch=today.plusDays(it.toLong()).toEpochDay()},{hours=it},{minutes=it},showDate=repeat==null)
+            else DeskReminderTimePicker(today,(local.toLocalDate().toEpochDay()-today.toEpochDay()).toInt(),local.hour,local.minute,!busy,
+                {freezeTime();dayEpoch=today.plusDays(it.toLong()).toEpochDay()},{freezeTime();hours=it},{freezeTime();minutes=it},showDate=repeat==null)
         }
-        if(!countdown) TextButton({repeatPicker=true},enabled=!busy,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {Text("重复 · ${repeat?.label() ?: "仅一次"}")}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+        if(!countdown) TextButton({repeatPicker=true},enabled=!busy,contentPadding=PaddingValues(horizontal=0.dp),modifier=Modifier.weight(1f).heightIn(min=48.dp)) {Text("重复 · ${repeat?.label() ?: "仅一次"}",modifier=Modifier.fillMaxWidth(),maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)}
         Text(if(countdown) {
             if(valid) java.time.LocalTime.of(durationHours,durationMinutes,durationSeconds).format(DateTimeFormatter.ofPattern("HH:mm:ss"))+" 后提醒" else "请选择大于零的倒计时"
-        } else if(valid) (if(repeat!=null) "下次：" else "")+selected.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) else "请选择未来的有效时间",
-            modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center,
+        } else if(valid) selected.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) else "请选择未来的有效时间",
+            modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.End,
             style=MaterialTheme.typography.bodySmall,color=if(valid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             DeskOutlinedButton({countdown=!countdown},modifier=Modifier.weight(1f),enabled=!busy) {Text(if(countdown) "切换日期" else "切换倒计时")}
             DeskButton({
                 val now=Instant.now()
                 val name=title.trim().ifBlank {"提醒"}
+                val submitTime=if(!manualTime) nextReminderMinute(now,zone) else selected
                 if(countdown && duration > 0) create(name,now.plusSeconds(duration).toString())
-                else if(repeat!=null && createRepeat!=null) createRepeat(name,repeat.next(now).toString(),repeat)
-                else if(!countdown && selected.toLocalDateTime() == local && selected.toInstant().isAfter(now)) create(name,selected.toInstant().toString())
+                else if(repeat!=null && createRepeat!=null) {
+                    val rule=if(manualTime) repeat else repeat.copy(hour=submitTime.hour,minute=submitTime.minute)
+                    createRepeat(name,rule.next(now).toString(),rule)
+                }
+                else if(!countdown && selected.toLocalDateTime() == local && submitTime.toInstant().isAfter(now)) create(name,submitTime.toInstant().toString())
                 else clockMillis=now.toEpochMilli()
             },modifier=Modifier.weight(1f),enabled=!busy && valid) {Text("创建提醒")}
         }

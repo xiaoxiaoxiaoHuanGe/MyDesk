@@ -24,9 +24,9 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
 @Composable internal fun RecentInbox(snapshot: JsonObject,open: (String?)->Unit) {
     val inbox=snapshot.obj("inbox")
     if(inbox.rows("recent").isEmpty()&&inbox.rows("sources").isEmpty())return
-    DeskCard("最近通知 · ${inbox.text("unread","0")} 未读") {
-        inbox.rows("recent").forEach {row->TextButton({open(row.text("id"))}) {Text("${row.text("source_name")} · ${row.text("title")}${if(row.text("read_at","").isBlank()) " · 未读" else ""}")}}
-        TextButton({open(null)}) {Text("查看全部")}
+    DeskCard("最近通知",headerAction={DeskStateBadge("${inbox.text("unread","0")} 未读")}) {
+        inbox.rows("recent").forEach {row->InboxMessageCard(row,snapshot.text("timezone","Asia/Shanghai"),compact=true) {open(row.text("id"))}}
+        DeskOutlinedButton({open(null)},modifier=Modifier.fillMaxWidth()) {Text("查看全部")}
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,13 +34,14 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
     val scope=rememberCoroutineScope();var rows by remember {mutableStateOf<List<JsonObject>>(emptyList())}
     var source by rememberSaveable {mutableStateOf("")};var detail by remember {mutableStateOf<JsonObject?>(null)}
     var cursor by remember {mutableStateOf<Long?>(null)};var busy by remember {mutableStateOf(false)}
+    var archived by rememberSaveable {mutableStateOf(false)}
     var message by remember {mutableStateOf("")}
     var cutoff by remember {mutableLongStateOf(0L)}
     val supported=snapshot.obj("capabilities").text("inbox")=="true"
     suspend fun load(more: Boolean=false) {
         if(busy||!supported)return;busy=true;message=""
         try {
-            val result=graph.inboxRequest("/api/inbox?limit=50"+(if(more&&cursor!=null) "&before=$cursor" else "")+(if(source.isNotBlank()) "&source_id=$source" else ""))
+            val result=graph.inboxRequest("/api/inbox?limit=50&archived=$archived"+(if(more&&cursor!=null) "&before=$cursor" else "")+(if(source.isNotBlank()) "&source_id=$source" else ""))
             val page=result.rows("items");graph.repo.cacheInbox(page)
             val pending=graph.store.inboxPending().map {deskJson.parseToJsonElement(it.json).jsonObject}
             val visible=page.map {row->if(pending.any {inboxReadMatches(row,it)}) buildJsonObject {row.forEach {(k,v)->put(k,v)};put("read_at","pending")} else row}
@@ -49,7 +50,7 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
             cutoff=maxOf(cutoff,rows.maxOfOrNull {it.text("seq").toLong()} ?: 0)
         } catch(error: Exception) {
             if(error is kotlinx.coroutines.CancellationException)throw error
-            val cached=graph.store.inboxCache().filter {source.isEmpty()||it.text("source_id")==source}
+            val cached=graph.store.inboxCache().filter {(source.isEmpty()||it.text("source_id")==source) && it.text("archived_at","").isNotBlank()==archived}
             if(!more) {
                 val pending=graph.store.inboxPending().map {deskJson.parseToJsonElement(it.json).jsonObject}
                 rows=cached.map {row->if(pending.any {inboxReadMatches(row,it)}) buildJsonObject {row.forEach {(k,v)->put(k,v)};put("read_at","pending")} else row}
@@ -63,8 +64,9 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
         try {detail=graph.inboxRequest("/api/inbox/$id");graph.repo.cacheInbox(listOf(detail!!))}
         catch(error: Exception) {if(error is kotlinx.coroutines.CancellationException)throw error;detail=if(error is ApiError && error.status==404) null else graph.store.inboxMessage(id);message=if(detail==null) "该通知已清理或尚未缓存" else "显示离线缓存"}
     }
-    LaunchedEffect(source) {load();if(initial!=null)open(initial)}
-    LaunchedEffect(snapshot.obj("inbox").text("latest_seq"),snapshot.obj("inbox").text("unread")) {if(!busy)load()}
+    LaunchedEffect(source,archived) {cursor=null;rows=emptyList();cutoff=0;load()}
+    LaunchedEffect(initial) {if(initial!=null)open(initial)}
+    LaunchedEffect(snapshot.obj("inbox")) {if(!busy)load()}
     DeskModalSheet(onDismissRequest=close,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             InboxSheetHeader(if(detail==null) "通知收件箱" else "通知详情",close,back=if(detail!=null) ({detail=null}) else null)
@@ -82,7 +84,21 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
                     }
                 }
                 DeskButton({scope.launch {graph.readInbox(buildJsonObject {put("ids",JsonArray(listOf(JsonPrimitive(selected.text("id")))))});detail=null;load()}},enabled=!busy,modifier=Modifier.fillMaxWidth()) {Text("标为已读")}
+                if(snapshot.obj("inbox").text("archive_supported")=="true") DeskOutlinedButton({scope.launch {
+                    busy=true
+                    try {
+                        graph.inboxRequest("/api/inbox/archive","POST",buildJsonObject {put("ids",JsonArray(listOf(JsonPrimitive(selected.text("id")))));put("archived",selected.text("archived_at","").isBlank())})
+                        graph.repo.cacheInbox(listOf(buildJsonObject {selected.forEach {(k,v)->put(k,v)};put("archived_at",if(selected.text("archived_at","").isBlank()) JsonPrimitive(java.time.Instant.now().toString()) else JsonNull);put("read_at",java.time.Instant.now().toString())}))
+                        graph.context.getSystemService(android.app.NotificationManager::class.java).cancel("inbox:${selected.text("id")}",2)
+                        detail=null
+                    } catch(error: Exception) {if(error is kotlinx.coroutines.CancellationException) throw error;message=error.message ?: "操作失败，请重试"}
+                    finally {busy=false}
+                    load()
+                }},enabled=!busy,modifier=Modifier.fillMaxWidth()) {Text(if(selected.text("archived_at","").isBlank()) "归档通知" else "移回收件箱")}
             } else {
+                if(snapshot.obj("inbox").text("archive_supported")=="true") SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf("收件箱","已归档").forEachIndexed {index,label->SegmentedButton(archived==(index==1),{archived=index==1},SegmentedButtonDefaults.itemShape(index,2),icon={}) {Text(label)}}
+                }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     FilterChip(source.isEmpty(),{source=""},{Text("全部来源")})
                     snapshot.obj("inbox").rows("sources").forEach {item->FilterChip(source==item.text("id"),{source=item.text("id")},{Text(item.text("name"))})}
@@ -94,7 +110,7 @@ internal fun inboxReadMatches(row: JsonObject,payload: JsonObject): Boolean =
                 for(row in rows) {
                     InboxMessageCard(row,snapshot.text("timezone","Asia/Shanghai")) {scope.launch {open(row.text("id"))}}
                 }
-                if(rows.isEmpty()&&!busy)InboxHint("暂无通知")
+                if(rows.isEmpty()&&!busy)InboxHint(if(archived) "暂无归档通知" else "暂无通知")
                 if(cursor!=null)TextButton({scope.launch {load(true)}},enabled=!busy) {Text("加载更早通知")}
                 InboxHint("已读状态将在联网后同步")
             }

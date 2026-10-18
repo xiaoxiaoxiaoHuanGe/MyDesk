@@ -58,7 +58,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
     }
 }
 
-@Composable internal fun StepPlanEditor(plan: JsonObject,busy: Boolean,configured: Boolean,command: (String,JsonObject)->Unit) {
+@Composable internal fun StepPlanEditor(plan: JsonObject,busy: Boolean,configured: Boolean,command: (String,JsonObject)->Unit,onClose: (()->Unit)?=null) {
     val settings=plan.obj("settings")
     val supportsRandom=plan.obj("capabilities").text("random_steps")=="true"
     var random by rememberSaveable {mutableStateOf(supportsRandom && (!settings.containsKey("start") || settings.text("random_percent","0")=="10"))}
@@ -111,7 +111,8 @@ internal fun stepPresetSelection(plan: JsonObject): String {
     }
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-            Text("快捷配置",Modifier.weight(1f),style=MaterialTheme.typography.titleSmall)
+            Text(if(onClose!=null) "自动任务" else "快捷配置",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+            if(onClose!=null) Text("快捷配置",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 TextButton({managing=true},enabled=!busy) {Text("管理")}
                 DropdownMenu(managing,{managing=false}) {
@@ -126,6 +127,7 @@ internal fun stepPresetSelection(plan: JsonObject): String {
                     }
                 }
             }
+            if(onClose!=null) TextButton(onClose,enabled=!busy) {Text("关闭")}
         }
         if(presets.isNotEmpty()) FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             presets.forEach {preset->FilterChip(selected==preset.text("id"),{
