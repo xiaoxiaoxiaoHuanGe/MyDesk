@@ -156,6 +156,12 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     suspend fun checkGitHubTask(payload: JsonObject): JsonObject=authorized {repo.command("github_task/check",payload).jsonObject}
     suspend fun checkService(payload: JsonObject): JsonObject=authorized {repo.command("service/check",payload).jsonObject}
     fun xDigestSessionKey(): String = client?.let {digestSessionKey(it.base,it.vault.cookie)}.orEmpty()
+    internal fun xDigestMediaAccess(session: String) = DigestMediaAccess(session) { path->
+        client?.let { api->
+            val cookie=api.vault.cookie
+            if(digestSessionKey(api.base,cookie)==session) digestMediaRequest(api.base,cookie,path) else null
+        }
+    }
     suspend fun xDigestRequest(path: String,method: String,body: JsonObject?): JsonObject=authorized {
         ready.await()
         check(path.startsWith("/api/x-digest/"))

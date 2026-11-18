@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
+from .x_digest_media import MAX_IMAGE, XDigestMedia
 
 CATEGORIES = dict(ai='AI 人工智能', tech='科技 / 开源', world='全球新闻',
                   finance='财经 / 加密货币', chinese='中文互联网', digital='数码 / 软件')
@@ -45,8 +46,9 @@ def count(value):
 
 
 class XDigest:
-    def __init__(self, desk, retention=0):
+    def __init__(self, desk, retention=0, media_directory=None):
         self.desk, self.retention = desk, max(0, min(3650, int(retention)))
+        self.media = XDigestMedia(media_directory) if media_directory is not None else None
         with desk.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS x_briefings(
@@ -62,6 +64,8 @@ class XDigest:
                 CREATE TABLE IF NOT EXISTS x_reader(
                     username TEXT NOT NULL, id TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0,
                     saved INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(username,id));
+                CREATE TABLE IF NOT EXISTS x_post_media(
+                    id TEXT NOT NULL, source TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(id,source));
             """)
 
     def ingest(self, payload):
@@ -96,6 +100,13 @@ class XDigest:
                 if category not in CATEGORIES or not isinstance(images, list) or len(images) > 4 or type(video) is not bool:
                     raise ValueError('分类或附件无效')
                 original = text(post['text'], 40000)
+                images = list(dict.fromkeys(photo(v) for v in images))
+                media = post.get('media', {})
+                if not isinstance(media, dict) or set(media)-set(images):
+                    raise ValueError('图片存档关联无效')
+                for source, digest in media.items():
+                    if self.media is None or not self.media.path(digest).is_file():
+                        raise ValueError('图片存档不存在')
                 if not original and not db.execute('SELECT 1 FROM x_posts WHERE id=?', (identifier,)).fetchone():
                     raise ValueError('缺少原帖正文')
                 db.execute("""INSERT INTO x_posts
@@ -116,20 +127,25 @@ class XDigest:
                     (identifier,batch,collected,collected,timestamp(post['posted_at']),category,author,text(post.get('name',''),100),
                      original,text(post.get('translation',''),40000),text(post.get('title',''),300),
                      text(post.get('summary',''),5000),count(post['likes']),count(post.get('reposts',0)),
-                     json.dumps(list(dict.fromkeys(photo(v) for v in images))),int(video)))
+                     json.dumps(images),int(video)))
+                db.executemany("""INSERT INTO x_post_media VALUES(?,?,?) ON CONFLICT(id,source)
+                    DO UPDATE SET digest=excluded.digest""", ((identifier,source,digest) for source,digest in media.items()))
             if self.retention:
                 cutoff = (datetime.now(timezone.utc)-timedelta(days=self.retention)).isoformat(timespec='seconds')
                 db.execute("""DELETE FROM x_posts WHERE collected_at<? AND NOT EXISTS
                     (SELECT 1 FROM x_reader WHERE id=x_posts.id AND saved=1)""", (cutoff,))
                 db.execute('DELETE FROM x_reader WHERE id NOT IN (SELECT id FROM x_posts)')
+                db.execute('DELETE FROM x_post_media WHERE id NOT IN (SELECT id FROM x_posts)')
                 db.execute('DELETE FROM x_briefings WHERE collected_at<? AND id NOT IN (SELECT batch FROM x_posts)', (cutoff,))
         return {'accepted': len(posts), 'batch': batch}
 
     @staticmethod
-    def card(row):
+    def card(row, media=()):
         post = dict(row)
         post.pop('seq')
         post['images'] = json.loads(post['images'])
+        post['media'] = {item['source']:PREFIX+'/media/'+item['digest'] for item in media
+                         if item['source'] in post['images']}
         post['url'] = f"https://x.com/{post['author']}/status/{post['id']}"
         for key in ('saved', 'read', 'video'):
             post[key] = bool(post[key])
@@ -156,18 +172,23 @@ class XDigest:
             clauses.append('r.saved=1')
         word = text(query.get('q',''), 120)
         if word:
-            clauses.append('(instr(lower(p.title),lower(?)) OR instr(lower(p.summary),lower(?)) OR instr(lower(p.text),lower(?)))')
-            params.extend([word]*3)
+            clauses.append('(instr(lower(p.title),lower(?)) OR instr(lower(p.summary),lower(?)) OR instr(lower(p.text),lower(?)) OR instr(lower(p.translation),lower(?)))')
+            params.extend([word]*4)
         where = (' WHERE '+' AND '.join(clauses)) if clauses else ''
         with self.desk.connect() as db:
             rows = db.execute("""SELECT p.seq,p.collected_at,p.id,p.category,p.name,p.author,p.title,p.summary,
-                substr(p.text,1,280) AS preview,p.posted_at,p.likes,p.reposts,p.images,p.video,
+                substr(p.text,1,280) AS preview,substr(p.translation,1,280) AS translated_preview,p.posted_at,p.likes,p.reposts,p.images,p.video,
                 r.read,r.saved FROM x_posts p LEFT JOIN x_reader r ON r.id=p.id AND r.username=?"""
                 + where + ' ORDER BY p.collected_at DESC,p.seq DESC LIMIT ?', (*params,limit+1)).fetchall()
             unread = db.execute("""SELECT COUNT(*) FROM x_posts p WHERE NOT EXISTS
                 (SELECT 1 FROM x_reader r WHERE r.id=p.id AND r.username=? AND r.read=1)""", (username,)).fetchone()[0]
             latest = db.execute('SELECT collected_at FROM x_briefings ORDER BY collected_at DESC LIMIT 1').fetchone()
-        return {'items':[self.card(r) for r in rows[:limit]],
+            media_by_post = {}
+            if rows:
+                bindings = ','.join('?' for _ in rows[:limit])
+                for m in db.execute(f'SELECT * FROM x_post_media WHERE id IN ({bindings})', [r['id'] for r in rows[:limit]]):
+                    media_by_post.setdefault(m['id'], []).append(m)
+        return {'items':[self.card(r,media_by_post.get(r['id'], ())) for r in rows[:limit]],
                 'next':f"{rows[limit-1]['collected_at']}|{rows[limit-1]['seq']}" if len(rows)>limit else None,
                 'unread':unread, 'updated_at':latest[0] if latest else '',
                 'categories':[{'id':k,'label':v} for k,v in CATEGORIES.items()]}
@@ -183,7 +204,8 @@ class XDigest:
                     saved=COALESCE(?,x_reader.saved)""", (username,identifier,int(read),int(bool(saved)),saved))
             row = db.execute("""SELECT p.*,r.read,r.saved FROM x_posts p
                 LEFT JOIN x_reader r ON r.id=p.id AND r.username=? WHERE p.id=?""", (username,identifier)).fetchone()
-        return self.card(row) if row else None
+            media = db.execute('SELECT * FROM x_post_media WHERE id=?', (identifier,)).fetchall() if row else ()
+        return self.card(row,media) if row else None
 
     def briefings(self, query):
         limit = max(1,min(20,int(query.get('limit',10))))
@@ -193,14 +215,41 @@ class XDigest:
         return {'items':[dict(r, trends=json.loads(r['trends'])) for r in rows[:limit]],
                 'next':str(rows[limit-1]['seq']) if len(rows)>limit else None}
 
+    def sync_status(self, ids):
+        if not isinstance(ids,list) or len(ids)>100 or any(not isinstance(i,str) or not re.fullmatch(r'[0-9]{1,24}',i) for i in ids):
+            raise ValueError('帖子标识无效')
+        if not ids:
+            return {'translated':[],'media':{}}
+        bindings = ','.join('?' for _ in ids)
+        with self.desk.connect() as db:
+            translated = [r[0] for r in db.execute(f"SELECT id FROM x_posts WHERE id IN ({bindings}) AND translation<>''",ids)]
+            media = {r['source']:r['digest'] for r in db.execute(
+                f"SELECT source,digest FROM x_post_media WHERE id IN ({bindings})",ids
+            ) if self.media.path(r['digest']).is_file()}
+        return {'translated':translated,'media':media}
+
 
 def register_x_digest(app, token, storage, zone):
     attempts = []
+    media_uploads = asyncio.Semaphore(4)
 
-    async def ingest(request):
+    def require_token(request):
         supplied = request.headers.get('Authorization','')
         if len(token) < 32 or not hmac.compare_digest(supplied.encode(), ('Bearer '+token).encode()):
             raise web.HTTPUnauthorized(text='接收凭据无效')
+
+    async def read_bounded(request, limit):
+        if request.content_length is not None and request.content_length > limit:
+            raise web.HTTPRequestEntityTooLarge(max_size=limit,actual_size=request.content_length)
+        body = bytearray()
+        async for chunk in request.content.iter_chunked(65536):
+            if len(body)+len(chunk)>limit:
+                raise web.HTTPRequestEntityTooLarge(max_size=limit,actual_size=len(body)+len(chunk))
+            body.extend(chunk)
+        return body
+
+    async def ingest(request):
+        require_token(request)
         now = asyncio.get_running_loop().time()
         attempts[:] = [t for t in attempts if now-t<60]
         if len(attempts) >= 20:
@@ -208,11 +257,7 @@ def register_x_digest(app, token, storage, zone):
         attempts.append(now)
         if request.content_type != 'application/json':
             raise web.HTTPUnsupportedMediaType()
-        body = bytearray()
-        async for chunk in request.content.iter_chunked(65536):
-            if len(body)+len(chunk)>MAX_BODY:
-                raise web.HTTPRequestEntityTooLarge(max_size=MAX_BODY,actual_size=len(body)+len(chunk))
-            body.extend(chunk)
+        body = await read_bounded(request,MAX_BODY)
         return web.json_response(await asyncio.to_thread(storage().ingest,json.loads(body)))
 
     async def feed(request):
@@ -233,7 +278,38 @@ def register_x_digest(app, token, storage, zone):
     async def briefings(request):
         return web.json_response(await asyncio.to_thread(storage().briefings,request.query))
 
+    async def upload_media(request):
+        require_token(request)
+        if request.content_type not in ('image/jpeg','image/png','image/webp'):
+            raise web.HTTPUnsupportedMediaType()
+        async with media_uploads:
+            try:
+                async with asyncio.timeout(30):
+                    body = await read_bounded(request,MAX_IMAGE)
+            except TimeoutError:
+                raise web.HTTPRequestTimeout() from None
+            try:
+                created = await asyncio.to_thread(storage().media.save,request.match_info['digest'],body,request.content_type)
+            except OverflowError:
+                raise web.HTTPInsufficientStorage() from None
+        return web.json_response({'sha256':request.match_info['digest']},status=201 if created else 200)
+
+    async def download_media(request):
+        saved = await asyncio.to_thread(storage().media.open,request.match_info['digest'])
+        if saved is None:
+            raise web.HTTPNotFound()
+        path,mime = saved
+        return web.FileResponse(path,headers={'Content-Type':mime})
+
+    async def sync_status(request):
+        require_token(request)
+        body = json.loads(await read_bounded(request,4096))
+        return web.json_response(await asyncio.to_thread(storage().sync_status,body['ids']))
+
     app.router.add_post(PREFIX+'/ingest',ingest)
+    app.router.add_post(PREFIX+'/status',sync_status)
+    app.router.add_put(PREFIX+'/media/{digest:[a-f0-9]{64}}',upload_media)
+    app.router.add_get(PREFIX+'/media/{digest:[a-f0-9]{64}}',download_media)
     app.router.add_get(PREFIX+'/feed',feed)
     app.router.add_get(PREFIX+'/briefings',briefings)
     app.router.add_get(PREFIX+'/posts/{id:[0-9]{1,24}}',detail)

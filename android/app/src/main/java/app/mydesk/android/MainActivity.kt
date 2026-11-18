@@ -115,6 +115,7 @@ class MainActivity: ComponentActivity() {
     val historyState by historyModel.state.collectAsStateWithLifecycle()
     val digestContext=LocalContext.current.applicationContext
     val digestKey=graph.xDigestSessionKey()
+    val digestMedia=remember(graph,digestKey) {graph.xDigestMediaAccess(digestKey)}
     val digestModel: XDigestModel=viewModel(key="x-digest:$digestKey",factory=remember(graph,digestKey) {
         viewModelFactory {initializer {XDigestModel(graph::xDigestRequest,DigestCache(digestContext,digestKey))}}
     })
@@ -218,7 +219,9 @@ class MainActivity: ComponentActivity() {
     }) { padding ->
         DeskMainPages(pagerState,Modifier.fillMaxSize().padding(padding).imePadding(),
             userScrollEnabled=businessDetail == null && detailReminder == null && attentionDestination==null && !logout) {page->
-            if(page==DeskPage.DIGEST) XDigestPage(digestModel,listStates[page],tab==page,timezone,open)
+            if(page==DeskPage.DIGEST) CompositionLocalProvider(LocalDigestMedia provides digestMedia) {
+                XDigestPage(digestModel,listStates[page],tab==page,timezone,open)
+            }
             else if(page==DeskPage.STEPS) StepsPage(snapshot,state.busy,state.message,stepsSection,{stepsSection=it},command,graph::loadStepHistory,open,navigationKey=stepsNavigation)
             else LazyColumn(Modifier.fillMaxSize(),state=listStates[page],contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 item {

@@ -6,9 +6,45 @@ from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
 from mydesk.app import create_app
+import base64
+import hashlib
 
 
 class XDigestTests(unittest.IsolatedAsyncioTestCase):
+    async def test_archived_image_is_private_and_empty_replay_keeps_translation(self):
+        token = 'a' * 64
+        image = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD/0AAAAASUVORK5CYII=')
+        digest = hashlib.sha256(image).hexdigest()
+        root = '/api/x-digest'
+        headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'image/png'}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'MYDESK_X_DIGEST_TOKEN': token}):
+            async with TestClient(TestServer(create_app(tmp, scheduling=False))) as client:
+                route = root+'/media/'+digest
+                self.assertEqual((await client.put(route, data=image)).status, 401)
+                self.assertEqual((await client.put(route, data=b'not a png', headers=headers)).status, 400)
+                self.assertEqual((await client.put(route, data=image, headers=headers)).status, 201)
+                self.assertEqual((await client.put(route, data=image, headers=headers)).status, 200)
+                self.assertEqual((await client.get(route)).status, 401)
+                source = 'https://pbs.twimg.com/media/photo.png'
+                batch = dict(id='edition1', collected_at='2026-11-18T01:00:00Z', posts=[
+                    dict(id='123', category='ai', author='reader', text='Hello world', translation='你好，世界',
+                         posted_at='2026-11-17T12:00:00Z', likes=1000, images=[source], media={source:digest})])
+                bearer = {'Authorization': 'Bearer ' + token}
+                self.assertEqual((await client.post(root+'/ingest', json=batch, headers=bearer)).status, 200)
+                status = await client.post(root+'/status', json={'ids':['123']}, headers=bearer)
+                self.assertEqual(await status.json(), {'translated':['123'],'media':{source:digest}})
+                batch['posts'][0].pop('media')
+                batch['posts'][0]['translation'] = ''
+                self.assertEqual((await client.post(root+'/ingest', json=batch, headers=bearer)).status, 200)
+                access = json.loads((Path(tmp)/'local-access.json').read_text())
+                self.assertEqual((await client.post('/api/login', json=access)).status, 200)
+                post = await (await client.get(root+'/posts/123')).json()
+                self.assertEqual(post['media'], {source:route})
+                self.assertEqual(post['translation'], '你好，世界')
+                self.assertEqual((await (await client.get(root+'/feed?q=你好')).json())['items'][0]['id'], '123')
+                response = await client.get(route)
+                self.assertEqual((response.status, response.content_type, await response.read()), (200, 'image/png', image))
+
     async def test_authenticated_ingest_search_paging_and_reader_state(self):
         token = 'a' * 64
         with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'MYDESK_X_DIGEST_TOKEN': token}):

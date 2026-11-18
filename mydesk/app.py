@@ -66,7 +66,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
                 raise web.HTTPForbidden(text='请求来源无效')
             incoming=request.method=='POST' and re.fullmatch(r'/api/incoming/feishu/[a-f0-9]{32}/[a-f0-9]{64}',request.path) is not None
             qr_public=(request.path=='/api/qr-login' and request.method=='POST') or (request.method=='GET' and re.fullmatch(r'/api/qr-login/[a-f0-9]{32}',request.path))
-            digest_ingest=request.method=='POST' and request.path=='/api/x-digest/ingest'
+            digest_ingest=(request.method=='POST' and request.path in ('/api/x-digest/ingest','/api/x-digest/status')) or (
+                request.method=='PUT' and re.fullmatch(r'/api/x-digest/media/[a-f0-9]{64}',request.path) is not None)
             private=request.path.startswith('/api/') and not qr_public and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/') and not incoming and not digest_ingest
             if private:
                 session=await asyncio.to_thread(auth.session,request.cookies.get(COOKIE))
@@ -457,7 +458,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     async def lifecycle(app):
         async with ClientSession() as http:
             desk=Desk(directory/'mydesk.sqlite3')
-            app[STATE]['x_digest']=XDigest(desk,os.environ.get('MYDESK_X_DIGEST_RETENTION_DAYS','0'))
+            app[STATE]['x_digest']=XDigest(desk,os.environ.get('MYDESK_X_DIGEST_RETENTION_DAYS','0'),directory/'x-digest-media')
             mobile=Mobile(desk)
             try:sender=await asyncio.to_thread(Fcm.load,http,directory/'fcm-service-account.json')
             except (ValueError,OSError):

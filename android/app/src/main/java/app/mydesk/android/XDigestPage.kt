@@ -33,7 +33,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 
 private fun JsonObject.photos()=(get("images") as? JsonArray).orEmpty().mapNotNull {(it as? JsonPrimitive)?.contentOrNull}
-private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank {text("preview")} }
+private fun JsonObject.photoCopy(source: String)=obj("media").text(source)
+private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank {text("translated_preview").ifBlank {text("preview")}}}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun XDigestPage(model: XDigestModel, list: LazyListState, active: Boolean, zone: String, open: (String)->Unit) {
@@ -139,7 +140,7 @@ private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank
                 "已收藏".takeIf {post.text("saved")=="true"}).joinToString(" · "),
                 style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
             Text(post.headline(),style=MaterialTheme.typography.titleMedium,maxLines=4,overflow=TextOverflow.Ellipsis)
-            post.photos().firstOrNull()?.let { DigestPhoto(it,"帖子配图",Modifier.fillMaxWidth().aspectRatio(1.95f)) }
+            post.photos().firstOrNull()?.let { DigestPhoto(it,"帖子配图",Modifier.fillMaxWidth().aspectRatio(1.95f),saved=post.photoCopy(it)) }
             DigestByline(post,zone)
         }
     }
@@ -177,7 +178,7 @@ private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank
                 Spacer(Modifier.height(6.dp)); SelectionContainer {Text(post.text("summary"))}
             }
             item {
-                val translation=post.text("translation")
+                val translation=post.text("translation").takeUnless {it==post.text("text")}.orEmpty()
                 val showOriginal=original || translation.isBlank()
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Text(if(showOriginal) "原帖正文" else "中文翻译",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
@@ -187,7 +188,7 @@ private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank
             }
             items(images.size,key={it}) { i ->
                 DigestPhoto(images[i],"第 ${i+1} 张配图",Modifier.fillMaxWidth().aspectRatio(1.5f)
-                    .clickable(onClickLabel="放大第 ${i+1} 张配图") {photo=i},scale=ContentScale.Fit)
+                    .clickable(onClickLabel="放大第 ${i+1} 张配图") {photo=i},scale=ContentScale.Fit,saved=post.photoCopy(images[i]))
             }
             if(post.text("video")=="true") item {Text("原帖含视频",style=MaterialTheme.typography.bodySmall)}
             item {
@@ -198,10 +199,10 @@ private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank
             }
         }
     }
-    if(photo in images.indices) DigestGallery(images,photo) {photo=-1}
+    if(photo in images.indices) DigestGallery(images,images.map(post::photoCopy),photo) {photo=-1}
 }
 
-@Composable private fun DigestGallery(images: List<String>, start: Int, close: ()->Unit) {
+@Composable private fun DigestGallery(images: List<String>, saved: List<String>, start: Int, close: ()->Unit) {
     val pager=rememberPagerState(initialPage=start,pageCount={images.size})
     var zoomed by remember {mutableStateOf(false)}
     LaunchedEffect(pager.currentPage) {zoomed=false}
@@ -221,7 +222,7 @@ private fun JsonObject.headline()=text("title").ifBlank {text("summary").ifBlank
                         zoomed=zoom>1f
                     }
                     DigestPhoto(images[index],"第 ${index+1} 张配图",Modifier.fillMaxSize().transformable(transform,canPan={zoom>1f}),
-                        large=true,scale=ContentScale.Fit,imageModifier=Modifier.graphicsLayer {
+                        large=true,saved=saved[index],scale=ContentScale.Fit,imageModifier=Modifier.graphicsLayer {
                             scaleX=zoom;scaleY=zoom;translationX=offset.x;translationY=offset.y
                         })
                 }
