@@ -32,10 +32,10 @@ class BackgroundReceiveService: Service() {
             graph.ready.await()
             if(!graph.backgroundReceiving.state.value.active && !graph.backgroundReceiving.attached()) {stopSelf();return@launch}
             if(watcher?.isActive!=true) watcher=scope.launch {
-                graph.state.map {it.authenticated to it.realtimeConnected}.distinctUntilChanged().collect {(authenticated,connected)->
+                graph.state.map {it.authenticated to it.realtimeStatus}.distinctUntilChanged().collect {(authenticated,status)->
                     if(!authenticated || !graph.backgroundReceiving.state.value.enabled || !getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
                         stopSelf()
-                    } else getSystemService(NotificationManager::class.java).notify(NOTIFICATION,notification(this@BackgroundReceiveService,connected))
+                    } else getSystemService(NotificationManager::class.java).notify(NOTIFICATION,notification(this@BackgroundReceiveService,status==RealtimeStatus.CONNECTED,status.label))
                 }
             }
         }
@@ -52,14 +52,14 @@ class BackgroundReceiveService: Service() {
     companion object {
         const val STOP="app.mydesk.android.STOP_BACKGROUND_RECEIVING"
         private const val NOTIFICATION=240031
-        internal fun notification(context: Context,connected: Boolean): Notification {
+        internal fun notification(context: Context,connected: Boolean,statusText: String=if(connected) "已连接，正在接收最近通知" else "正在连接"): Notification {
             DeskNotificationChannels.create(context)
             val flags=PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             val open=PendingIntent.getActivity(context,NOTIFICATION,Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),flags)
             val stop=PendingIntent.getService(context,NOTIFICATION,Intent(context,BackgroundReceiveService::class.java).setAction(STOP),flags)
             return Notification.Builder(context,DeskNotificationChannels.RECEIVER)
                 .setSmallIcon(R.drawable.ic_notification).setContentTitle("MyDesk 后台实时接收")
-                .setContentText(if(connected) "已连接，正在接收最近通知" else "正在连接，网络恢复后自动重试")
+                .setContentText(statusText)
                 .setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PRIVATE)
                 .setOngoing(true).setOnlyAlertOnce(true).setShowWhen(false).setContentIntent(open)
                 .addAction(Notification.Action.Builder(null,"停止接收",stop).build()).build()

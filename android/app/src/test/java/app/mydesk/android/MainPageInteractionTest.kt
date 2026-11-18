@@ -39,9 +39,9 @@ class MainPageInteractionTest {
     private fun showPages() {
         compose.setContent {
             MaterialTheme(colorScheme=deskColors(false),shapes=deskShapes,typography=deskTypography) {
-                val pager=rememberPagerState(pageCount={4})
+                val pager=rememberPagerState(pageCount={5})
                 val scope=rememberCoroutineScope()
-                val lists=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
+                val lists=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
                 val finishedPage=pager.settledPage
                 val firstIndex=lists[0].firstVisibleItemIndex
                 val firstOffset=lists[0].firstVisibleItemScrollOffset
@@ -50,7 +50,7 @@ class MainPageInteractionTest {
                     DeskMainPages(pager,Modifier.weight(1f).fillMaxWidth().testTag("pages"),enabled.value) {page->
                         LazyColumn(Modifier.fillMaxSize().testTag("list$page"),state=lists[page],contentPadding=PaddingValues(18.dp)) {
                             item {Text("页面$page")}
-                            if(page==1) item {ReminderForm(false,"Asia/Shanghai",active=finishedPage==1) {_,_->fail("UI fixture must not create reminders")}}
+                            if(page==2) item {ReminderForm(false,"Asia/Shanghai",active=finishedPage==2) {_,_->fail("UI fixture must not create reminders")}}
                             items(24) {Text("内容$page-$it",Modifier.fillMaxWidth().height(64.dp))}
                         }
                     }
@@ -65,7 +65,7 @@ class MainPageInteractionTest {
     }
     private fun assertPage(page: Int) {
         compose.runOnIdle {assertEquals(page,settled)}
-        compose.onNodeWithText(listOf("工作台","提醒","步数","设置")[page]).assertIsSelected()
+        compose.onNodeWithText(listOf("工作台","X·速览","提醒","步数","设置")[page]).assertIsSelected()
     }
 
     @Test fun swipesAndBottomNavigationStayInSyncWithoutWrapping() {
@@ -74,11 +74,13 @@ class MainPageInteractionTest {
         swipe(true);assertPage(1)
         swipe(true);assertPage(2)
         swipe(true);assertPage(3)
-        swipe(true);assertPage(3)
+        swipe(true);assertPage(4)
+        swipe(true);assertPage(4)
+        swipe(false);assertPage(3)
         swipe(false);assertPage(2)
         swipe(false);assertPage(1)
         swipe(false);assertPage(0)
-        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(3)
+        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(4)
         compose.onNodeWithText("工作台").performClick();compose.waitForIdle();assertPage(0)
     }
 
@@ -89,19 +91,20 @@ class MainPageInteractionTest {
         var index=0;var offset=0
         compose.runOnIdle {index=listIndex;offset=listOffset;assertTrue(index>0 || offset>0)}
         swipe(true);assertPage(1)
+        swipe(true);assertPage(2)
         compose.onNode(hasText("提醒事项（选填）") and hasSetTextAction()).performTextInput("保留提醒草稿")
         val minuteWheel=compose.onNodeWithContentDescription("分钟选择")
         minuteWheel.performSemanticsAction(SemanticsActions.SetProgress) {it(30f)}
         compose.waitForIdle()
         val beforeMinute=minuteWheel.fetchSemanticsNode().config[SemanticsProperties.StateDescription]
         minuteWheel.performTouchInput {swipeUp()}
-        compose.waitForIdle();assertPage(1)
+        compose.waitForIdle();assertPage(2)
         val selectedMinute=minuteWheel.fetchSemanticsNode().config[SemanticsProperties.StateDescription]
         assertNotEquals(beforeMinute,selectedMinute)
-        swipe(true);assertPage(2)
+        swipe(true);assertPage(3)
         compose.onNodeWithText("工作台").performClick();compose.waitForIdle();assertPage(0)
         compose.runOnIdle {assertEquals(index,listIndex);assertEquals(offset,listOffset)}
-        swipe(true);assertPage(1)
+        compose.onNodeWithText("提醒").performClick();compose.waitForIdle();assertPage(2)
         compose.onNode(hasSetTextAction() and hasText("保留提醒草稿")).assertExists()
         val nextMinute=java.time.Instant.now().plusSeconds(60).atZone(java.time.ZoneId.of("Asia/Shanghai")).minute
         assertEquals("$nextMinute 分钟",compose.onNodeWithContentDescription("分钟选择").fetchSemanticsNode().config[SemanticsProperties.StateDescription])
@@ -111,11 +114,11 @@ class MainPageInteractionTest {
         showPages()
         compose.runOnIdle {enabled.value=false}
         swipe(true);assertPage(0)
-        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(3)
+        compose.onNodeWithText("设置").performClick();compose.waitForIdle();assertPage(4)
         compose.runOnIdle {enabled.value=true}
         compose.onNodeWithTag("pages").performTouchInput {
             swipe(center,center.copy(x=center.x+35f),durationMillis=600)
         }
-        compose.waitForIdle();assertPage(3)
+        compose.waitForIdle();assertPage(4)
     }
 }

@@ -14,6 +14,63 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[32],application=android.app.Application::class)
 class ReminderSchedulerTest {
+    @Test fun unchangedSnapshotPreservesTheExistingAlarmReservation()=runBlocking {
+        val context=RuntimeEnvironment.getApplication()
+        val manager=context.getSystemService(AlarmManager::class.java)
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        shadowOf(context.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(true)
+        val store=NativeStore(context,memory=true)
+        try {
+            val scheduler=ReminderScheduler(context,store)
+            val reminder=Reminder("future","提醒","2099-01-01T00:00:00Z","pending","v1")
+            scheduler.apply(listOf(reminder))
+            val reservation=shadowOf(manager).scheduledAlarms.single()
+            scheduler.apply(listOf(reminder))
+            assertSame("Unchanged sync must not cancel and recreate the alarm",reservation,shadowOf(manager).scheduledAlarms.single())
+            scheduler.apply(listOf(reminder.copy(remindAt="2099-01-02T00:00:00Z",revision="v2")))
+            assertNotSame(reservation,shadowOf(manager).scheduledAlarms.single())
+            manager.cancel(shadowOf(manager).scheduledAlarms.single().operation!!)
+            scheduler.apply(listOf(reminder.copy(remindAt="2099-01-02T00:00:00Z",revision="v2")))
+            assertEquals("Missing system reservation must be restored",1,shadowOf(manager).scheduledAlarms.size)
+        } finally {store.close()}
+    }
+
+    @Test fun uncompletedDailyReminderFromYesterdayDeliversOfflineAndSchedulesTomorrow()=runBlocking {
+        val context=RuntimeEnvironment.getApplication()
+        val alarms=context.getSystemService(AlarmManager::class.java)
+        val notifications=context.getSystemService(NotificationManager::class.java)
+        org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        shadowOf(notifications).setNotificationsEnabled(true)
+        val store=NativeStore(context,memory=true)
+        try {
+            val today=java.time.Instant.now().minusSeconds(120).truncatedTo(java.time.temporal.ChronoUnit.MINUTES)
+            val yesterday=today.minusSeconds(86400)
+            val clock=today.atZone(java.time.ZoneOffset.UTC)
+            val rule=ReminderRepeat((1..7).toList(),clock.hour,clock.minute,"UTC","daily")
+            val cached=Reminder("daily","每天提醒",yesterday.toString(),"pending",rule.revision(yesterday),rule,yesterday.toString())
+            val snapshot=kotlinx.serialization.json.buildJsonObject {
+                put("reminders",kotlinx.serialization.json.JsonArray(listOf(deskJson.encodeToJsonElement(Reminder.serializer(),cached))))
+            }.toString()
+            store.accept(snapshot)
+            // Yesterday was displayed, but the user never tapped Complete. No network or Activity runs.
+            store.markDelivered(cached.id,cached.revision)
+            val scheduler=ReminderScheduler(context,store)
+            val due=store.visible().single()
+            assertEquals(today.toString(),due.remindAt)
+            scheduler.apply(store.visible())
+            assertTrue("Overdue occurrence must be registered for immediate delivery",alarms.nextAlarmClock.triggerTime<=System.currentTimeMillis()+2000)
+            assertTrue(scheduler.deliver(due.id,due.revision))
+            assertFalse("Same occurrence must not alert twice",scheduler.deliver(due.id,due.revision))
+            scheduler.apply(store.visible())
+            assertEquals("Tomorrow must be scheduled without completing today's reminder",today.plusSeconds(86400).toEpochMilli(),alarms.nextAlarmClock.triggerTime)
+            assertEquals(1,shadowOf(notifications).allNotifications.size)
+            // Recreating the scheduler and accepting the same stale server cache must retain tomorrow.
+            store.accept(snapshot)
+            ReminderScheduler(context,store).apply(store.visible())
+            assertEquals(today.plusSeconds(86400).toEpochMilli(),alarms.nextAlarmClock.triggerTime)
+        } finally {store.close()}
+    }
+
     @Test fun deadlineBroadcastUsesForegroundDeliveryPriorityWithoutOpeningAnActivity()=runBlocking {
         val context=RuntimeEnvironment.getApplication()
         val manager=context.getSystemService(AlarmManager::class.java)

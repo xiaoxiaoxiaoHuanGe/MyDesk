@@ -1,10 +1,13 @@
 package app.mydesk.android
 
-import java.io.IOException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.*
 import okhttp3.*
+
+enum class RealtimeStatus(val label: String) {
+    IDLE("实时连接已暂停"), CONNECTING("正在连接"), CONNECTED("实时连接正常"), RETRYING("连接中断，正在重试")
+}
 
 /** One socket shared by the visible Activity and the user-enabled receiving service. */
 internal class RealtimeConnection(
@@ -14,7 +17,8 @@ internal class RealtimeConnection(
     private val synchronize: suspend ()->Boolean,
     private val accept: suspend (String)->Unit,
     private val connected: (Boolean)->Unit,
-    private val checkUpdates: suspend ()->Unit={}
+    private val checkUpdates: suspend ()->Unit={},
+    private val connectionState: (RealtimeStatus)->Unit={}
 ) {
     private var visible=false
     private var receiving=false
@@ -28,14 +32,19 @@ internal class RealtimeConnection(
         if(!visible && !receiving) {disconnect();return}
         if(job?.isActive==true || api()==null) return
         val current=++generation
+        connectionState(RealtimeStatus.CONNECTING)
         job=scope.launch {listen(current)}
     }
     @Synchronized private fun disconnect() {
         generation++
         job?.cancel();job=null
         connected(false)
+        connectionState(RealtimeStatus.IDLE)
     }
-    @Synchronized private fun status(current: Long,value: Boolean) {if(generation==current) connected(value)}
+    @Synchronized private fun status(current: Long,value: Boolean) {if(generation==current) {
+        connected(value)
+        connectionState(if(value) RealtimeStatus.CONNECTED else RealtimeStatus.RETRYING)
+    }}
     @Synchronized private fun isVisible()=visible
     private suspend fun listen(current: Long) {
         try {
@@ -63,7 +72,9 @@ internal class RealtimeConnection(
                     } finally {socket.cancel();messages.cancel()}
                     delayMs=2000L
                 } catch(cancel: CancellationException) {throw cancel}
-                  catch(_: IOException) { }
+                  catch(error: Exception) {
+                      ReminderDiagnostics.event("realtime_retry","error_type=${error.javaClass.simpleName}")
+                  }
                 status(current,false)
                 delay(delayMs);delayMs=minOf(delayMs*2,30000L)
             }

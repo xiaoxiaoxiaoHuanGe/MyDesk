@@ -18,6 +18,35 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[32],application=Application::class)
 class RealtimeConnectionTest {
+    @Test fun malformedSnapshotDoesNotPermanentlyStopBackgroundReception()=runBlocking {
+        val server=MockWebServer();val sockets=Channel<WebSocket>(Channel.UNLIMITED)
+        server.dispatcher=object: okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: RecordedRequest)=MockResponse().withWebSocketUpgrade(object: WebSocketListener() {
+                override fun onOpen(socket: WebSocket,response: Response) {sockets.trySend(socket)}
+            })
+        }
+        server.start()
+        val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO+CoroutineExceptionHandler {_,_->})
+        val http=OkHttpClient()
+        val api=MyDeskApi(server.url("/").toString().trimEnd('/'),object: SessionVault {override var cookie="test";override var csrf="test"},http)
+        val accepted=CompletableDeferred<Unit>()
+        val states=java.util.concurrent.CopyOnWriteArrayList<RealtimeStatus>()
+        val connection=RealtimeConnection(scope,http,{api},synchronize={true},accept={accepted.complete(Unit)},connected={},connectionState={states.add(it)})
+        try {
+            connection.background(true)
+            withTimeout(5000) {sockets.receive()}.send("{invalid json")
+            val next=withTimeoutOrNull(6000) {sockets.receive()}
+            assertNotNull("Malformed data must trigger recovery without reopening the app",next)
+            next!!.send("""{"type":"snapshot","state":{}}""")
+            withTimeout(5000) {accepted.await()}
+            assertEquals(RealtimeStatus.CONNECTING,states.first())
+            assertTrue(states.contains(RealtimeStatus.RETRYING))
+            assertEquals(RealtimeStatus.CONNECTED,states.last())
+            connection.clear()
+            assertEquals(RealtimeStatus.IDLE,states.last())
+        } finally {connection.clear();scope.coroutineContext[Job]!!.cancelAndJoin();http.dispatcher.executorService.shutdown();http.connectionPool.evictAll();server.shutdown()}
+    }
+
     private fun snapshot(seq: Int)=buildJsonObject {
         put("reminders",buildJsonArray {})
         put("inbox",buildJsonObject {

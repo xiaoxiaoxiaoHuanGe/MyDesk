@@ -3,7 +3,7 @@ import json
 from uuid import UUID
 from aiohttp import ClientTimeout
 
-URL='https://v1.hitokoto.cn/?c=d&c=i&c=k&min_length=8&max_length=32'
+URL='https://v1.hitokoto.cn/?c=i&min_length=8&max_length=32'
 FALLBACK={'text':'把今天的事情，安静地安排好。','source':'','author':'','url':''}
 
 async def poll_quote(session,url=URL):

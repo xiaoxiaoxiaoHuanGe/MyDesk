@@ -16,7 +16,8 @@ val Context.graph: AppGraph get()=(applicationContext as MyDeskApp).graph
 
 data class HomeState(val snapshot: JsonObject?=null,val reminders: List<Reminder> = emptyList(),val queued: Int=0,
     val server: String="",val theme: String="system",val authenticated: Boolean=false,val connected: Boolean=false,
-    val ready: Boolean=false,val busy: Boolean=false,val message: String="",val pushStatus: JsonObject?=null,val deviceName: String="",val syncing: Boolean=false,val realtimeConnected: Boolean=false)
+    val ready: Boolean=false,val busy: Boolean=false,val message: String="",val pushStatus: JsonObject?=null,val deviceName: String="",val syncing: Boolean=false,val realtimeConnected: Boolean=false,
+    val realtimeStatus: RealtimeStatus=RealtimeStatus.CONNECTING,val notice: String="")
 
 class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -33,7 +34,8 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     val ready=CompletableDeferred<Unit>()
     private var activityVisible=false
     private val realtime=RealtimeConnection(scope,http,{client?.takeIf {state.value.authenticated && it.vault.cookie.isNotEmpty()}},
-        synchronize={sync()},accept={repo.snapshot(it)},connected={value->mutable.update {it.copy(connected=value,realtimeConnected=value)}},checkUpdates={updates.check()})
+        synchronize={sync()},accept={repo.snapshot(it)},connected={value->mutable.update {it.copy(connected=value,realtimeConnected=value)}},checkUpdates={updates.check()},
+        connectionState={value->mutable.update {it.copy(realtimeStatus=value)}})
     internal val backgroundReceiving=BackgroundReceiving(context,{state.value.authenticated},realtime::background)
     private val manualSyncLock=kotlinx.coroutines.sync.Mutex()
     init {
@@ -52,7 +54,7 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         scope.launch { store.state.collect { cache -> mutable.update { it.copy(snapshot=cache.snapshot,reminders=cache.reminders,queued=cache.queued) } } }
     }
     fun perform(operation: suspend ()->Unit) = scope.launch {
-        mutable.update { it.copy(busy=true,message="") }
+        mutable.update { it.copy(busy=true,message="",notice="") }
         try { operation() }
         catch (cancel: CancellationException) { throw cancel }
         catch (error: Exception) { mutable.update { it.copy(message=if (error is ApiError || error is IllegalArgumentException || error is IllegalStateException) error.message ?: "操作失败" else "连接失败，请检查服务器地址和网络") } }
@@ -93,16 +95,17 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     suspend fun action(reminder: Reminder,action: String,minutes: Int=10) {
         repo.act(reminder.id,reminder.revision,action,minutes)
         requestSync()
-        mutable.update { it.copy(message="操作已保存在本机，联网后同步") }
+        mutable.update { it.copy(notice="已保存") }
         runCatching { sync() }
     }
+    fun dismissNotice(value: String) {mutable.update {if(it.notice==value) it.copy(notice="") else it}}
     suspend fun sync(): Boolean {
         ready.await()
         try {
             val result=repo.sync()
             val active=result && state.value.authenticated && client?.vault?.cookie?.isNotEmpty() == true
             if(active) push.refresh(repo.registration)
-            mutable.update { it.copy(connected=active,message=repo.conflictMessage ?: it.message) }
+            mutable.update { it.copy(message=repo.conflictMessage ?: it.message) }
             return active
         } catch (error: ApiError) {
             if (error.status in setOf(401,403)) {
@@ -152,6 +155,12 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
     }
     suspend fun checkGitHubTask(payload: JsonObject): JsonObject=authorized {repo.command("github_task/check",payload).jsonObject}
     suspend fun checkService(payload: JsonObject): JsonObject=authorized {repo.command("service/check",payload).jsonObject}
+    fun xDigestSessionKey(): String = client?.let {digestSessionKey(it.base,it.vault.cookie)}.orEmpty()
+    suspend fun xDigestRequest(path: String,method: String,body: JsonObject?): JsonObject=authorized {
+        ready.await()
+        check(path.startsWith("/api/x-digest/"))
+        (client ?: throw ApiError(401,"请先登录 MyDesk")).request(path,method,body).jsonObject
+    }
     suspend fun inboxRequest(path: String,method: String="GET",body: JsonObject?=null): JsonObject=authorized {
         ready.await();val active=client ?: error("请先登录")
         val cookie=active.vault.cookie

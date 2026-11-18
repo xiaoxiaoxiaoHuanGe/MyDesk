@@ -16,6 +16,7 @@ from aiohttp import ClientSession, web
 from .app_updates import AppUpdates
 from .inbox import IncomingError
 from .auth import Auth
+from .x_digest import XDigest, register_x_digest
 from .config import Settings,mail_accounts,server_sources
 from .domain import Desk
 from .providers import GitHub, Beszel
@@ -65,7 +66,8 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
                 raise web.HTTPForbidden(text='请求来源无效')
             incoming=request.method=='POST' and re.fullmatch(r'/api/incoming/feishu/[a-f0-9]{32}/[a-f0-9]{64}',request.path) is not None
             qr_public=(request.path=='/api/qr-login' and request.method=='POST') or (request.method=='GET' and re.fullmatch(r'/api/qr-login/[a-f0-9]{32}',request.path))
-            private=request.path.startswith('/api/') and not qr_public and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/') and not incoming
+            digest_ingest=request.method=='POST' and request.path=='/api/x-digest/ingest'
+            private=request.path.startswith('/api/') and not qr_public and request.path not in ('/api/login','/api/notification-action') and not request.path.startswith('/api/webhook/') and not incoming and not digest_ingest
             if private:
                 session=await asyncio.to_thread(auth.session,request.cookies.get(COOKIE))
                 if not session:
@@ -455,6 +457,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     async def lifecycle(app):
         async with ClientSession() as http:
             desk=Desk(directory/'mydesk.sqlite3')
+            app[STATE]['x_digest']=XDigest(desk,os.environ.get('MYDESK_X_DIGEST_RETENTION_DAYS','0'))
             mobile=Mobile(desk)
             try:sender=await asyncio.to_thread(Fcm.load,http,directory/'fcm-service-account.json')
             except (ValueError,OSError):
@@ -499,6 +502,11 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
 
     app.cleanup_ctx.append(lifecycle)
     app.on_shutdown.append(shutdown)
+    digest_token=os.environ.get('MYDESK_X_DIGEST_TOKEN','').strip()
+    if not digest_token:
+        try:digest_token=(directory/'x-digest-token').read_text(encoding='ascii').strip()
+        except (OSError,UnicodeError):pass
+    register_x_digest(app,digest_token,lambda:app[STATE]['x_digest'],lambda:settings.value.get('timezone','Asia/Shanghai'))
     app.router.add_get('/health',health)
     app.router.add_post('/api/login',login)
     app.router.add_post('/api/qr-login',qr_start)

@@ -16,6 +16,7 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
     private val notifications=context.getSystemService(NotificationManager::class.java)
     private val prefs=context.getSharedPreferences("alarm-state",Context.MODE_PRIVATE)
     private val lock=Mutex()
+    private var reservation: Triple<String,String,Long>?=null
     init {
         DeskNotificationChannels.create(context)
     }
@@ -23,6 +24,7 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
         Intent().setClassName(context,"app.mydesk.android.AlarmReceiver").setAction("MYDESK_ALARM")
             .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     private fun cancelScheduledAlarm() {
+        reservation=null
         alarms.cancel(alarmIntent())
         // Updating a PendingIntent's extras doesn't upgrade an existing token's delivery flags.
         // Retire the old key when upgrading so its ordinary-priority alarm cannot remain queued.
@@ -43,11 +45,16 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
             if(store.delivered(current.id)!=current.revision) current
             else if(current.repeat!=null) followingOccurrence(current,Instant.now()) else null
         }
-        cancelScheduledAlarm()
-        if (!notifications.areNotificationsEnabled() || notifications.getNotificationChannel("reminders")?.importance == NotificationManager.IMPORTANCE_NONE || (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) return@withLock
-        val next=undelivered.minByOrNull { Instant.parse(it.remindAt) } ?: return@withLock
+        if (!notifications.areNotificationsEnabled() || notifications.getNotificationChannel("reminders")?.importance == NotificationManager.IMPORTANCE_NONE || (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {cancelScheduledAlarm();return@withLock}
+        val next=undelivered.minByOrNull { Instant.parse(it.remindAt) } ?: run {cancelScheduledAlarm();return@withLock}
         val whenMillis=maxOf(System.currentTimeMillis()+500,Instant.parse(next.remindAt).toEpochMilli())
-        if (Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()) {
+        val key=Triple(next.id,next.revision,whenMillis)
+        val exact=Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()
+        // Only reuse a future reservation that the system still reports. Recreate after
+        // process restart, delivery, permission changes or removal by the system.
+        if(exact && reservation==key && alarms.nextAlarmClock?.triggerTime==whenMillis) return@withLock
+        cancelScheduledAlarm()
+        if (exact) {
             // User-chosen deadlines are visible alarm reservations. Android treats these
             // as wake-up alarms instead of deferrable ordinary background work.
             val show=PendingIntent.getActivity(context,0,
@@ -56,7 +63,9 @@ class ReminderScheduler(val context: Context, val store: NativeStore) {
                     .putExtra("reminder_id",next.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarms.setAlarmClock(AlarmManager.AlarmClockInfo(whenMillis,show),alarmIntent())
-            ReminderDiagnostics.event("scheduled","mode=alarm_clock target_ms=$whenMillis system_clock_matches=${runCatching {alarms.nextAlarmClock?.triggerTime == whenMillis}.getOrNull()} foreground=true")
+            reservation=key
+            // AlarmClockInfo reports the requested time, not OEM-adjusted execution time.
+            ReminderDiagnostics.event("scheduled","mode=alarm_clock requested_ms=$whenMillis reported_request_ms=${runCatching {alarms.nextAlarmClock?.triggerTime}.getOrNull()} actual_dispatch_ms=unknown")
         } else {
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,whenMillis,alarmIntent())
             ReminderDiagnostics.event("scheduled","mode=inexact target_ms=$whenMillis foreground=true")

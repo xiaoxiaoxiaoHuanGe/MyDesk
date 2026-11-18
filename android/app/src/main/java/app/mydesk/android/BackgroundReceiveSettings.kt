@@ -28,7 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
             !state.enabled -> "已关闭"
             state.starting -> "正在启动"
             state.active && home.realtimeConnected -> "已连接 · 新消息自动通知"
-            state.active -> "正在重连"
+            state.active -> home.realtimeStatus.label
             else -> "接收暂停，请重试"
         },style=MaterialTheme.typography.bodyMedium)
         if(state.error.isNotBlank()) Text(state.error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
@@ -41,7 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                 }) {Text(if(manager.getNotificationChannel(DeskNotificationChannels.RECEIVER)?.importance==NotificationManager.IMPORTANCE_NONE) "接收状态已隐藏" else "隐藏接收状态")}
                 TextButton({context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}")))}) {Text("后台与电池设置")}
             }
-            Text("隐藏接收状态不影响新消息通知。",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("后台接收运行时可通知新消息；若被系统停止，重新打开 APP 可恢复。",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if(state.enabled && !state.active && !state.starting) DeskOutlinedButton({graph.backgroundReceiving.startIfEnabled()}) {Text("重新连接")}
     }
