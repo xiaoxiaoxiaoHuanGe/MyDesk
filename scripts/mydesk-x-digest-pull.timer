@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for new MyDesk X Digest editions
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60s
+
+[Install]
+WantedBy=timers.target

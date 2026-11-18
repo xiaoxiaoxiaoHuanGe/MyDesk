@@ -1,0 +1,16 @@
+[Unit]
+Description=Import X Digest editions into MyDesk
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/mydesk/x-digest-pull/pull_x_digest.py
+WorkingDirectory=/opt/mydesk/x-digest-pull
+TimeoutStartSec=5min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/mydesk/x-digest-pull
