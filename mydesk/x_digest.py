@@ -66,6 +66,8 @@ class XDigest:
                     saved INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(username,id));
                 CREATE TABLE IF NOT EXISTS x_post_media(
                     id TEXT NOT NULL, source TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(id,source));
+                CREATE TABLE IF NOT EXISTS x_digest_hidden(
+                    id TEXT PRIMARY KEY);
             """)
 
     def ingest(self, payload):
@@ -76,6 +78,9 @@ class XDigest:
         summary = text(payload.get('summary', ''), 40000)
         trends = payload.get('trends', [])
         posts = payload['posts']
+        selection = payload.get('selection_version')
+        if selection is not None and (type(selection) is not int or selection < 1):
+            raise ValueError('筛选版本无效')
         if not isinstance(trends, list) or len(trends) > 200 or not isinstance(posts, list) or len(posts) > 100:
             raise ValueError('批次过大')
         trends = [
@@ -90,6 +95,7 @@ class XDigest:
                 summary=COALESCE(NULLIF(excluded.summary,''),x_briefings.summary),
                 trends=CASE WHEN excluded.trends='[]' THEN x_briefings.trends ELSE excluded.trends END""",
                 (batch, collected, summary, json.dumps(trends, ensure_ascii=False)))
+            selected = []
             for post in posts:
                 identifier, author = text(post['id'], 24), text(post['author'], 30).removeprefix('@')
                 if not re.fullmatch(r'[0-9]{1,24}', identifier) or not re.fullmatch(r'[A-Za-z0-9_]{1,30}', author):
@@ -130,12 +136,21 @@ class XDigest:
                      json.dumps(images),int(video)))
                 db.executemany("""INSERT INTO x_post_media VALUES(?,?,?) ON CONFLICT(id,source)
                     DO UPDATE SET digest=excluded.digest""", ((identifier,source,digest) for source,digest in media.items()))
+                if selection is not None:
+                    selected.append(identifier)
+                    db.execute('UPDATE x_posts SET category=? WHERE batch=? AND id=?', (category,batch,identifier))
+            if selection is not None:
+                db.execute('DELETE FROM x_digest_hidden WHERE id IN (SELECT id FROM x_posts WHERE batch=?)', (batch,))
+                placeholders = ','.join('?' for _ in selected)
+                predicate = f' AND id NOT IN ({placeholders})' if selected else ''
+                db.execute('INSERT INTO x_digest_hidden SELECT id FROM x_posts WHERE batch=?'+predicate, (batch,*selected))
             if self.retention:
                 cutoff = (datetime.now(timezone.utc)-timedelta(days=self.retention)).isoformat(timespec='seconds')
                 db.execute("""DELETE FROM x_posts WHERE collected_at<? AND NOT EXISTS
                     (SELECT 1 FROM x_reader WHERE id=x_posts.id AND saved=1)""", (cutoff,))
                 db.execute('DELETE FROM x_reader WHERE id NOT IN (SELECT id FROM x_posts)')
                 db.execute('DELETE FROM x_post_media WHERE id NOT IN (SELECT id FROM x_posts)')
+                db.execute('DELETE FROM x_digest_hidden WHERE id NOT IN (SELECT id FROM x_posts)')
                 db.execute('DELETE FROM x_briefings WHERE collected_at<? AND id NOT IN (SELECT batch FROM x_posts)', (cutoff,))
         return {'accepted': len(posts), 'batch': batch}
 
@@ -170,6 +185,8 @@ class XDigest:
                           for d in (day,day+timedelta(days=1)))
         if query.get('bookmarks') == '1':
             clauses.append('r.saved=1')
+        else:
+            clauses.append('NOT EXISTS (SELECT 1 FROM x_digest_hidden h WHERE h.id=p.id)')
         word = text(query.get('q',''), 120)
         if word:
             clauses.append('(instr(lower(p.title),lower(?)) OR instr(lower(p.summary),lower(?)) OR instr(lower(p.text),lower(?)) OR instr(lower(p.translation),lower(?)))')
@@ -181,7 +198,8 @@ class XDigest:
                 r.read,r.saved FROM x_posts p LEFT JOIN x_reader r ON r.id=p.id AND r.username=?"""
                 + where + ' ORDER BY p.collected_at DESC,p.seq DESC LIMIT ?', (*params,limit+1)).fetchall()
             unread = db.execute("""SELECT COUNT(*) FROM x_posts p WHERE NOT EXISTS
-                (SELECT 1 FROM x_reader r WHERE r.id=p.id AND r.username=? AND r.read=1)""", (username,)).fetchone()[0]
+                (SELECT 1 FROM x_reader r WHERE r.id=p.id AND r.username=? AND r.read=1) AND NOT EXISTS
+                (SELECT 1 FROM x_digest_hidden h WHERE h.id=p.id)""", (username,)).fetchone()[0]
             latest = db.execute('SELECT collected_at FROM x_briefings ORDER BY collected_at DESC LIMIT 1').fetchone()
             media_by_post = {}
             if rows:

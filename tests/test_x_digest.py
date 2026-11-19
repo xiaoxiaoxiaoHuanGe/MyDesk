@@ -11,6 +11,33 @@ import hashlib
 
 
 class XDigestTests(unittest.IsolatedAsyncioTestCase):
+    async def test_curated_replay_hides_rejected_posts_without_losing_bookmarks(self):
+        token = 'a' * 64
+        root = '/api/x-digest'
+        bearer = {'Authorization': 'Bearer ' + token}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'MYDESK_X_DIGEST_TOKEN': token}):
+            async with TestClient(TestServer(create_app(tmp, scheduling=False))) as client:
+                post = dict(id='123', category='digital', author='reader', text='noise',
+                            posted_at='2026-11-17T12:00:00Z', likes=1100)
+                selected = {**post, 'id':'124', 'text':'model announcement'}
+                batch = dict(id='edition1', collected_at='2026-11-18T01:00:00Z', posts=[post, selected])
+                other = {**batch, 'id':'edition2', 'posts':[{**post, 'id':'125'}]}
+                for edition in (batch, other):
+                    self.assertEqual((await client.post(root+'/ingest', json=edition, headers=bearer)).status, 200)
+                access = json.loads((Path(tmp)/'local-access.json').read_text())
+                login = await (await client.post('/api/login', json=access)).json()
+                csrf = {'X-MyDesk-CSRF':login['csrf']}
+                self.assertEqual((await client.post(root+'/posts/123/bookmark', json={'saved':True}, headers=csrf)).status, 200)
+                curated = {**batch, 'selection_version':1, 'posts':[{**selected,'category':'ai'}]}
+                for edition in (curated, curated, batch):
+                    self.assertEqual((await client.post(root+'/ingest', json=edition, headers=bearer)).status, 200)
+                feed = await (await client.get(root+'/feed')).json()
+                self.assertEqual({p['id']:p['category'] for p in feed['items']}, {'124':'ai','125':'digital'})
+                self.assertEqual(feed['unread'], 2)
+                saved = await (await client.get(root+'/feed?bookmarks=1')).json()
+                self.assertEqual([p['id'] for p in saved['items']], ['123'])
+                self.assertEqual((await client.get(root+'/posts/123')).status, 200)
+
     async def test_archived_image_is_private_and_empty_replay_keeps_translation(self):
         token = 'a' * 64
         image = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD/0AAAAASUVORK5CYII=')
