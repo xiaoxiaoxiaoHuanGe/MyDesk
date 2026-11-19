@@ -79,6 +79,7 @@ def sync(home=HOME):
     gitdir = home/'collector.git'
     ssh = ('ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no '
            '-o ConnectTimeout=10 -o IdentitiesOnly=yes -o HostKeyAlgorithms=ssh-ed25519 '
+           '-o ServerAliveInterval=15 -o ServerAliveCountMax=3 '
            f'-o UserKnownHostsFile={home}/known_hosts -i {home}/id_ed25519')
     env = dict(os.environ,GIT_SSH_COMMAND=ssh,GIT_TERMINAL_PROMPT='0',GIT_CONFIG_NOSYSTEM='1')
     def git(*args):
@@ -86,7 +87,9 @@ def sync(home=HOME):
                               check=True,stdout=subprocess.PIPE).stdout
     if not gitdir.is_dir():
         git('init','--bare')
-    git('fetch','--quiet','--no-tags','--depth=1',REPO,REF)
+    # Only this service writes to its private Git cache. A killed shallow fetch can leave this lock behind.
+    (gitdir/'shallow.lock').unlink(missing_ok=True)
+    git('fetch','--quiet','--no-tags','--no-auto-maintenance','--depth=1',REPO,REF)
     tree = git('ls-tree','-r','-z','FETCH_HEAD').decode('ascii').rstrip('\x00').split('\x00')
     if len(tree)>12:
         raise ValueError('Too many files in export tree')
@@ -146,5 +149,9 @@ def sync(home=HOME):
 
 
 if __name__=='__main__':
+    import fcntl
+
     os.umask(0o077)
-    raise SystemExit(sync())
+    with (HOME/'pull.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
+        raise SystemExit(sync())
