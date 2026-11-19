@@ -11,7 +11,6 @@ MyDesk 的 MIT 许可证仅适用于本项目自己的源码。依赖和工具�
 | Firebase Android SDK | Apache-2.0 | https://github.com/firebase/firebase-android-sdk |
 | aiohttp | Apache-2.0 | https://github.com/aio-libs/aiohttp |
 | cryptography | Apache-2.0 / BSD-3-Clause | https://github.com/pyca/cryptography |
-| pywebpush | MPL-2.0 | https://github.com/web-push-libs/pywebpush |
 | tzdata | Apache-2.0；时区数据库为公共领域 | https://github.com/python/tzdata |
 | qrcode | BSD-3-Clause | https://github.com/lincolnloop/python-qrcode |
 | ZXing / ZXing Android Embedded | Apache-2.0 | https://github.com/journeyapps/zxing-android-embedded |

@@ -23,15 +23,14 @@ class ReleaseTests(unittest.TestCase):
                 asset=Path(__file__).resolve().parents[1]/'android/app/src/main/res/drawable-nodpi/mydesk_paper_header.png'
                 self.assertEqual(asset.read_bytes(),package.read(name))
 
-    def test_release_contains_runtime_and_frontend_but_never_private_state(self):
+    def test_release_contains_runtime_without_web_workbench_or_private_state(self):
         with tempfile.TemporaryDirectory() as directory:
             archive=build(Path(directory)/'release.zip')
             self.assertIsNotNone(archive)
             with zipfile.ZipFile(archive) as package:
                 names=set(package.namelist())
                 self.assertIn('mydesk/mydesk/app.py',names)
-                self.assertIn('mydesk/frontend/mydesk-card.js',names)
-                self.assertIn('mydesk/frontend/index.html',names)
+                self.assertFalse(any(name.startswith('mydesk/frontend/') for name in names))
                 self.assertIn('mydesk/deploy/Dockerfile',names)
                 self.assertFalse(any('/custom_components/' in name or '/homeassistant/' in name for name in names))
                 self.assertIn('mydesk/docs/DEPLOY.md',names)

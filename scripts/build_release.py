@@ -12,8 +12,7 @@ def build(output):
     files=[ROOT/name for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','SECURITY.md','CONTRIBUTING.md','requirements-dev.txt','requirements.txt','.dockerignore','.gitignore','Build-OfficialRelease.cmd')]
     files.append(ROOT/'assets/mydesk-logo.png')
     files.extend((ROOT/'.github/workflows').glob('*.yml'))
-    rules={'mydesk':{'.py'}, 'frontend':{'.js','.css','.json','.html','.svg','.png','.webp','.webmanifest'},
-           'docs':{'.md'},'scripts':{'.py','.sh','.cjs','.ps1'},'tests':{'.py','.mjs'}}
+    rules={'mydesk':{'.py'},'docs':{'.md'},'scripts':{'.py','.sh','.ps1'},'tests':{'.py'}}
     for folder,extensions in rules.items():
         files.extend(path for path in (ROOT/folder).glob('*') if path.is_file() and path.suffix in extensions and not path.name.startswith(('ha_','start_local_ha','browser_check_ha','dev_server')))
     files.extend(ROOT/'deploy'/name for name in ['Dockerfile','compose.yaml','compose.local.yaml','compose.phone.yaml','compose.server.yaml','mydesk-ping.conf','.env.example','openresty-location.conf'])

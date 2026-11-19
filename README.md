@@ -26,7 +26,7 @@ MyDesk 是一个可自行部署的个人工作台，由 **原生 Android APP + P
 
 界面包含四个主要页面：**工作台、提醒、步数、设置**。需要处理的事项集中展示并可点击直接处理，正常状态保持简洁；支持浅色、深色、跟随系统，以及左右滑动切换页面。
 
-电脑登录页默认使用 App 扫码，也可切换账号密码登录。App 会话永久保持；设置中「本机设备」编辑图标旁提供扫一扫，扫码后需确认电脑登录。使用、升级与会话失效规则见 [扫码登录说明](docs/QR_LOGIN.md)。
+App 使用服务器地址、账号和密码登录，会话长期有效。升级和会话失效规则见 [登录与会话说明](docs/QR_LOGIN.md)。
 
 ## 可以做什么
 
@@ -123,7 +123,7 @@ flowchart LR
     App --> Alarm[Android 本地提醒]
 ```
 
-后端使用 Python 3.12，Android 使用 Kotlin、Jetpack Compose、Room 和 WorkManager。提供浏览器工作台用于桌面访问；Android APP 是主要移动端。
+后端使用 Python 3.12，Android 使用 Kotlin、Jetpack Compose、Room 和 WorkManager。
 
 ```sh
 python -m venv .venv
@@ -132,7 +132,6 @@ python -m venv .venv
 # Windows PowerShell 使用 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
-node --test tests/frontend.test.mjs tests/standalone.test.mjs
 python -m mydesk --data .local/standalone --host 127.0.0.1 --port 8787
 ```
 

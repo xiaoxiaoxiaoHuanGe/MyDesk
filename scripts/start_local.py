@@ -67,7 +67,7 @@ def main():
             time.sleep(1)
     else:
         raise RuntimeError('MyDesk did not become healthy within 120 seconds')
-    print('MyDesk: http://127.0.0.1:8787/')
+    print('MyDesk backend health: http://127.0.0.1:8787/health')
     print('Login details: '+str(ROOT/'.local/standalone/LOCAL_ACCESS.md'))
     if args.phone:
         print('Android LAN URL: https://'+args.lan_ip+':8443/')

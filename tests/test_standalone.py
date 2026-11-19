@@ -294,15 +294,11 @@ class StandaloneTests(unittest.IsolatedAsyncioTestCase):
         response=await self.client.get('/health')
         self.assertEqual(await response.json(),{'status':'ok','application':'MyDesk'})
 
-    async def test_static_application_has_no_ha_or_cached_personal_data(self):
-        response=await self.client.get('/')
-        page=await response.text()
-        self.assertIn('MyDesk',page)
-        self.assertNotIn('Home Assistant',page)
-        response=await self.client.get('/sw.js')
-        script=await response.text()
-        self.assertIn('unsubscribe',script)
-        self.assertNotIn('showNotification',script)
-        self.assertNotIn('caches.open',script)
-        response=await self.client.get('/manifest.webmanifest')
-        self.assertEqual((await response.json())['name'],'MyDesk')
+    async def test_server_serves_app_api_without_web_workbench(self):
+        for path in ('/', '/sw.js', '/manifest.webmanifest', '/frontend/index.html'):
+            with self.subTest(path=path):
+                self.assertEqual((await self.client.get(path)).status,404)
+        self.assertEqual((await self.client.get('/health')).status,200)
+        login = await self.client.post('/api/login', json={**self.access, 'client':'android'})
+        self.assertEqual(login.status,200)
+        self.assertEqual((await self.client.get('/api/session')).status,200)

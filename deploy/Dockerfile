@@ -5,7 +5,6 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY mydesk ./mydesk
-COPY frontend ./frontend
 RUN useradd --uid 10001 --create-home mydesk && mkdir /data && chown mydesk:mydesk /data
 USER mydesk
 EXPOSE 8787 8443

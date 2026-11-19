@@ -27,7 +27,6 @@ from .native_notifications import NativeNotifications
 from .backup import Backups, selected, MAX_FILE_BYTES
 from .qr_login import browser_label,qr_image
 
-ROOT=Path(__file__).resolve().parents[1]
 STATE=web.AppKey('mydesk',dict)
 COOKIE='mydesk_session'
 
@@ -393,9 +392,6 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     async def notification_action(request):
         raise web.HTTPGone(text='旧网页通知操作已停用，请打开 MyDesk App 查看当前提醒')
 
-    async def file_response(request):
-        file={'/':'index.html','/sw.js':'sw.js','/manifest.webmanifest':'manifest.webmanifest'}[request.path]
-        return web.FileResponse(ROOT/'frontend'/file)
 
     async def health(request):
         return web.json_response({'status':'ok','application':'MyDesk'})
@@ -551,7 +547,4 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     app.router.add_get('/api/mobile/notifications',mobile_notifications)
     app.router.add_post('/api/mobile/notifications/test',mobile_notifications)
     app.router.add_post('/api/mobile/notification-receipt',mobile_notifications)
-    for path in ('/','/sw.js','/manifest.webmanifest'):
-        app.router.add_get(path,file_response)
-    app.router.add_static('/frontend/',ROOT/'frontend',show_index=False)
     return app

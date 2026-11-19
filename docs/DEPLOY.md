@@ -50,7 +50,7 @@ location / {
 python -m mydesk --data .local/standalone --host 127.0.0.1 --port 8787
 ```
 
-浏览器打开 http://127.0.0.1:8787；首次凭据位于 `.local/standalone/LOCAL_ACCESS.md`。
+访问 `http://127.0.0.1:8787/health` 检查后端状态。首次登录凭据位于 `.local/standalone/LOCAL_ACCESS.md`。
 
 Docker 本地测试脚本 `python scripts/start_local.py` 会生成仅用于本项目的测试 CA。`--phone --lan-ip <本机局域网地址>` 可启用 LAN HTTPS，用调试 APK 测试。生成的 CA 和私钥均在 `.local/`，不要提交或混入正式 APK。
 

@@ -12,9 +12,8 @@ if [[ "$source_dir" == "$target_dir" ]]; then
 fi
 command -v docker >/dev/null
 docker compose version >/dev/null
-mkdir -p "$target_dir/mydesk" "$target_dir/frontend" "$target_dir/deploy" "$target_dir/scripts" "$target_dir/data"
+mkdir -p "$target_dir/mydesk" "$target_dir/deploy" "$target_dir/scripts" "$target_dir/data"
 for file in "$source_dir/mydesk/"*.py; do install -m 0644 "$file" "$target_dir/mydesk/"; done
-for file in "$source_dir/frontend/"*; do install -m 0644 "$file" "$target_dir/frontend/"; done
 for name in requirements.txt .dockerignore; do install -m 0644 "$source_dir/$name" "$target_dir/$name"; done
 for name in compose.yaml Dockerfile openresty-location.conf; do
   if [[ -f "$target_dir/deploy/$name" ]]; then
