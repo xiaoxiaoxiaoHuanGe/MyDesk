@@ -166,7 +166,7 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
     if(release) AlertDialog(onDismissRequest={release=false},title={Text("结束本地跟踪？")},text={Text("请先在 GitHub Actions 确认本次任务。此操作不会取消 GitHub 上的任务。")},confirmButton={TextButton({release=false; command("wxstep/release",buildJsonObject {put("confirmed",true)})}) {Text("已检查，结束跟踪")}},dismissButton={TextButton({release=false}) {Text("取消")}})
 }
 
-@Composable internal fun MailCard(snapshot: JsonObject,zone: String) {
+@Composable internal fun MailCard(snapshot: JsonObject,zone: String,onOpen: ((JsonObject)->Unit)?=null) {
     val feed=snapshot.obj("feeds").obj("mail")
     val data=feed.obj("data")
     var selected by rememberSaveable {mutableStateOf("")}
@@ -204,7 +204,8 @@ private fun serverMetric(value: JsonElement?,suffix: String=""): String=when(val
                     }
                 }
                 mails.forEach {mail ->
-                    Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
+                    Surface(onClick={onOpen?.invoke(mail)},enabled=onOpen!=null,
+                        shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                             Text(mail.text("subject"),fontWeight=if(mail.text("unread") == "true") FontWeight.SemiBold else FontWeight.Normal,
                                 style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)

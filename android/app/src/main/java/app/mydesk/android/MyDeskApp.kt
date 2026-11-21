@@ -175,6 +175,10 @@ class AppGraph(val context: Context,val prefs: AppPrefs=AppPrefs(context)) {
         check(client===active&&state.value.authenticated&&active.vault.cookie==cookie) {"会话已变化，请重试"}
         result
     }
+    suspend fun mailDetail(account: String,uid: String): JsonObject {
+        require(account.matches(Regex("[A-Za-z0-9_-]{1,64}")) && uid.matches(Regex("[0-9]{1,10}"))) {"邮件标识无效"}
+        return inboxRequest("/api/mail/$account/$uid")
+    }
     suspend fun readInbox(payload: JsonObject) {
         repo.readInbox(payload);requestSync();runCatching {sync()}
     }

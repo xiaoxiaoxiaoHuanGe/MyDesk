@@ -103,12 +103,16 @@ class MainActivity: ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun Workbench(state: HomeState,graph: AppGraph,localIp: LocalIpState,refreshLocalIp: ()->Unit,notify: ()->Unit,exact: ()->Unit,settings: ()->Unit,open: (String)->Unit,notificationLaunch: NotificationLaunch?,onNotificationHandled: ()->Unit) {
     val pagerState=rememberPagerState(pageCount={DeskPage.COUNT})
     val tab=pagerState.settledPage
     val pageScope=rememberCoroutineScope()
-    val listStates=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
-    val listState=listStates[tab]
+    val listStates=listOf(rememberLazyListState(),rememberLazyListState(),rememberLazyListState())
+    val toolList=rememberLazyListState()
+    val historyList=rememberLazyListState()
+    val digestList=rememberLazyListState()
+    var workbenchTab by rememberSaveable {mutableStateOf(WorkbenchTab.OVERVIEW)}
     val settingsModel: SettingsViewModel=viewModel(key="settings:${state.server}",factory=remember(graph) {viewModelFactory {initializer {SettingsViewModel(graph)}}})
     val settingsState by settingsModel.state.collectAsStateWithLifecycle()
     val historyModel: TaskHistoryViewModel=viewModel(key="history:${state.server}",factory=remember(graph) {viewModelFactory {initializer {TaskHistoryViewModel(graph::loadHistoryPage)}}})
@@ -133,6 +137,7 @@ class MainActivity: ComponentActivity() {
     var attentionDestination by remember {mutableStateOf<JsonObject?>(null)}
     var stepsSection by rememberSaveable {mutableIntStateOf(0)}
     var stepsNavigation by rememberSaveable {mutableIntStateOf(0)}
+    var openedMail by remember {mutableStateOf<JsonObject?>(null)}
     AppUpdatePrompt(graph)
     var inboxOpen by rememberSaveable {mutableStateOf(false)}
     var inboxReference by rememberSaveable {mutableStateOf<String?>(null)}
@@ -158,7 +163,12 @@ class MainActivity: ComponentActivity() {
         // Keep a notification pending across login/initial sync so references resolve against this account's cache.
         if(state.snapshot == null && (request.intent.getStringExtra("event_reference").orEmpty().isNotEmpty() || request.intent.getStringExtra("reminder_id").orEmpty().isNotEmpty())) return@LaunchedEffect
         val target=NotificationNavigation.target(request.intent,snapshot)
-        val targetPage=when(target.section) {NotificationSection.REMINDERS->DeskPage.REMINDERS;NotificationSection.STEPS->DeskPage.STEPS;else->DeskPage.WORKBENCH}
+        val targetPage=if(target.section==NotificationSection.REMINDERS) DeskPage.REMINDERS else DeskPage.WORKBENCH
+        if(targetPage==DeskPage.WORKBENCH) workbenchTab=when(target.section) {
+            NotificationSection.STEPS->WorkbenchTab.STEPS
+            NotificationSection.TASKS,NotificationSection.SERVERS,NotificationSection.NETWORK->WorkbenchTab.TOOLS
+            else->WorkbenchTab.OVERVIEW
+        }
         if(target.section==NotificationSection.STEPS) {stepsSection=2;stepsNavigation++}
         if(pagerState.settledPage != targetPage) notificationPage=targetPage
         pagerState.scrollToPage(targetPage)
@@ -170,28 +180,26 @@ class MainActivity: ComponentActivity() {
         pendingScroll=target
         onNotificationHandled()
     }
-    LaunchedEffect(pendingScroll,tab,state.reminders) {
+    LaunchedEffect(pendingScroll,tab,state.reminders,workbenchTab) {
         val target=pendingScroll ?: return@LaunchedEffect
         if(target.section==NotificationSection.STEPS) {pendingScroll=null;return@LaunchedEffect}
-        if(tab != if(target.section == NotificationSection.REMINDERS) 1 else 0) return@LaunchedEffect
+        if(tab != if(target.section == NotificationSection.REMINDERS) DeskPage.REMINDERS else DeskPage.WORKBENCH) return@LaunchedEffect
+        val listState=if(tab==DeskPage.WORKBENCH && workbenchTab==WorkbenchTab.TOOLS) toolList else listStates[tab]
         val index=when(target.section) {
             NotificationSection.REMINDERS -> state.reminders.indexOfFirst {it.id == target.reference}.let {if(it < 0) {focusMessage="该提醒已被处理或尚未同步，当前显示最新提醒列表。";1} else it+2}
-            NotificationSection.WORKBENCH -> 0
-            NotificationSection.ATTENTION -> 1
-            NotificationSection.TASKS -> 4
-            NotificationSection.SERVERS -> 5
-            NotificationSection.NETWORK -> 6
-            NotificationSection.STEPS -> 2
-            NotificationSection.INBOX -> 7
-            NotificationSection.MAIL -> 3
+            NotificationSection.WORKBENCH,NotificationSection.ATTENTION,NotificationSection.TASKS,NotificationSection.STEPS -> 0
+            NotificationSection.SERVERS,NotificationSection.MAIL -> 1
+            NotificationSection.NETWORK,NotificationSection.INBOX -> 2
         }
-        val actualIndex=index + if(index > 0 && (state.message.isNotBlank() || focusMessage.isNotEmpty() || state.busy)) 1 else 0
+        val hasStatus=state.message.isNotBlank() || focusMessage.isNotEmpty() || state.busy
+        val actualIndex=index + if(hasStatus && (tab==DeskPage.WORKBENCH || index>0)) 1 else 0
         snapshotFlow {listState.layoutInfo.totalItemsCount}.first {it > actualIndex}
         listState.scrollToItem(actualIndex)
         pendingScroll=null
     }
     if(inboxOpen) InboxSheet(graph,snapshot,{inboxOpen=false;inboxReference=null},inboxReference)
     if(sourcesOpen) NotificationSourcesSheet(graph,{sourcesOpen=false})
+    openedMail?.let {mail->MailDetailSheet(graph,mail,timezone,open) {openedMail=null}}
     val detailReminder=state.reminders.firstOrNull {it.id == detailReminderId}
     val command: (String,JsonObject)->Unit={action,payload->graph.perform { graph.command(action,payload) }}
     val scanQr=rememberQrLoginScanner(state.server,graph::previewQrLogin,graph::confirmQrLogin)
@@ -219,19 +227,37 @@ class MainActivity: ComponentActivity() {
     }) { padding ->
         DeskMainPages(pagerState,Modifier.fillMaxSize().padding(padding).imePadding(),
             userScrollEnabled=businessDetail == null && detailReminder == null && attentionDestination==null && !logout) {page->
-            if(page==DeskPage.DIGEST) CompositionLocalProvider(LocalDigestMedia provides digestMedia) {
-                XDigestPage(digestModel,listStates[page],tab==page,timezone,open)
+            val workbench=page==DeskPage.WORKBENCH
+            Column(Modifier.fillMaxSize()) {
+            if(workbench && !history) {
+                val daily=snapshot.obj("daily_quote")
+                val quoteUrl=daily.text("url").takeIf {it.startsWith("https://hitokoto.cn/")}
+                Column(Modifier.padding(start=18.dp,end=18.dp,top=14.dp,bottom=8.dp)) {
+                    DeskHeader("MyDesk",daily.text("text").ifBlank {"把今天的事情，安静地安排好。"},
+                        quoteCredit=if(quoteUrl!=null) listOf(daily.text("author"),daily.text("source"),"一言").filter {it.isNotBlank()}.distinct().joinToString(" · ") else "",
+                        onQuoteClick=quoteUrl?.let {url->{open(url)}})
+                }
+                PrimaryTabRow(selectedTabIndex=workbenchTab.ordinal) {
+                    WorkbenchTab.entries.forEach {section->
+                        Tab(workbenchTab==section,{workbenchTab=section;pendingScroll=null;focusMessage=""},
+                            text={Text(section.title,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)})
+                    }
+                }
             }
-            else if(page==DeskPage.STEPS) StepsPage(snapshot,state.busy,state.message,stepsSection,{stepsSection=it},command,graph::loadStepHistory,open,navigationKey=stepsNavigation)
-            else LazyColumn(Modifier.fillMaxSize(),state=listStates[page],contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                item {
-                    val daily=snapshot.obj("daily_quote")
-                    val showQuote=page==0 && !history
-                    val quoteUrl=daily.text("url").takeIf {it.startsWith("https://hitokoto.cn/")}
-                    DeskHeader(if(history && page == 0) "任务历史${historyTask?.let {id->" · "+(snapshot.rows("tasks").firstOrNull {it.text("task_id","") == id}?.text("task_name") ?: id)} ?: ""}" else DeskPage.titles[page],
-                        if(showQuote) daily.text("text").ifBlank {"把今天的事情，安静地安排好。"} else "",
-                        quoteCredit=if(showQuote && quoteUrl!=null) listOf(daily.text("author"),daily.text("source"),"一言").filter {it.isNotBlank()}.distinct().joinToString(" · ") else "",
-                        onQuoteClick=if(showQuote && quoteUrl!=null) ({open(quoteUrl)}) else null)
+            if(workbench && !history && workbenchTab==WorkbenchTab.DIGEST) CompositionLocalProvider(LocalDigestMedia provides digestMedia) {
+                XDigestPage(digestModel,digestList,tab==page,timezone,open)
+            }
+            else if(workbench && !history && workbenchTab==WorkbenchTab.STEPS) {
+                StepsPage(snapshot,state.busy,state.message,stepsSection,{stepsSection=it},command,
+                    graph::loadStepHistory,open,navigationKey=stepsNavigation,showTitle=false)
+            }
+            else LazyColumn(Modifier.fillMaxSize(),state=when {
+                workbench && history->historyList
+                workbench && workbenchTab==WorkbenchTab.TOOLS->toolList
+                else->listStates[page]
+            },contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                if(!workbench || history) item {
+                    DeskHeader(if(workbench) "任务历史${historyTask?.let {id->" · "+(snapshot.rows("tasks").firstOrNull {it.text("task_id","") == id}?.text("task_name") ?: id)} ?: ""}" else DeskPage.titles[page],"")
                 }
                 if(state.message.isNotBlank() || focusMessage.isNotEmpty() || state.busy) item {
                     if(state.message.isNotBlank()) Text(state.message,color=MaterialTheme.colorScheme.primary)
@@ -269,8 +295,19 @@ class MainActivity: ComponentActivity() {
                         items(state.reminders,key={it.id}) { reminder -> ReminderCard(reminder,timezone,state.busy,reminder.id == focusedReminder,detail={detailReminderId=reminder.id}) {action,minutes->graph.perform { graph.action(reminder,action,minutes) }} }
                         if(state.reminders.isEmpty()) item { DeskCard("还没有待办提醒") { Text("想到一件事，就给它设个时间。") } }
                     }
-                    else -> {
-                        item { WorkbenchAttentionCard(snapshot.rows("attention"),state.snapshot != null,busy=state.busy,onAcknowledge={entry->command("attention/acknowledge",buildJsonObject {put("token",entry.text("ack_token"))})}) {entry->
+                    workbenchTab==WorkbenchTab.OVERVIEW -> {
+                        val now=Instant.now()
+                        val remindersById=state.reminders.filter {reminder->
+                            reminder.status in setOf("pending","snoozed") &&
+                                runCatching {Instant.parse(reminder.remindAt)<=now}.getOrDefault(false)
+                        }.associateBy {it.id}
+                        val entries=snapshot.rows("attention").filter {entry->
+                            entry.text("kind")!="reminder" || entry.text("id") in remindersById
+                        }
+                        item { WorkbenchAttentionCard(entries,state.snapshot != null,busy=state.busy,
+                            onAcknowledge={entry->command("attention/acknowledge",buildJsonObject {put("token",entry.text("ack_token"))})},
+                            completeReminder={entry->remindersById[entry.text("id")]?.let {graph.perform {graph.action(it,"complete")}}},
+                            canComplete={entry->entry.text("id") in remindersById}) {entry->
                             pageScope.launch {
                                 try {
                                     graph.sync()
@@ -283,7 +320,7 @@ class MainActivity: ComponentActivity() {
                                             "reminder"->detailReminderId=id
                                             "task"->fresh.rows("tasks").firstOrNull {it.text("task_id")==id}?.let {businessDetail=NotificationSection.TASKS to it}
                                             "server"->fresh.obj("feeds").obj("servers").obj("data").rows("items").firstOrNull {it.text("id")==id}?.let {businessDetail=NotificationSection.SERVERS to it}
-                                            "steps"->{stepsSection=2;stepsNavigation++;pagerState.animateScrollToPage(DeskPage.STEPS)}
+                                            "steps"->{stepsSection=2;stepsNavigation++;workbenchTab=WorkbenchTab.STEPS}
                                             else->{attentionDestination=d;if(d.text("type")=="settings") settingsModel.reload()}
                                         }
                                     }
@@ -291,8 +328,10 @@ class MainActivity: ComponentActivity() {
                             }
                         } }
 
-                        item { MailCard(snapshot,timezone) }
+                        item { MailCard(snapshot,timezone,onOpen={openedMail=it}) }
                         item { RecentInbox(snapshot) {id->inboxReference=id;inboxOpen=true} }
+                    }
+                    else -> {
                         item { WorkbenchTaskCard(snapshot.rows("tasks"),timezone,{businessDetail=NotificationSection.TASKS to it},{historyTask=null;history=true}) }
                         item { ServerCard(snapshot,timezone) }
                         item { NetworkCard(snapshot,timezone) }
@@ -300,6 +339,7 @@ class MainActivity: ComponentActivity() {
                     }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
+            }
             }
         }
     }

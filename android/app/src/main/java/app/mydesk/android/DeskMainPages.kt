@@ -14,12 +14,14 @@ import androidx.compose.ui.unit.dp
 
 internal object DeskPage {
     const val WORKBENCH=0
-    const val DIGEST=1
-    const val REMINDERS=2
-    const val STEPS=3
-    const val SETTINGS=4
-    const val COUNT=5
-    val titles=listOf("MyDesk","X·速览","即时提醒","步数","MyDesk 设置")
+    const val REMINDERS=1
+    const val SETTINGS=2
+    const val COUNT=3
+    val titles=listOf("MyDesk","即时提醒","MyDesk 设置")
+}
+
+internal enum class WorkbenchTab(val title: String) {
+    OVERVIEW("概览"), DIGEST("X·速览"), STEPS("微信步数"), TOOLS("工具")
 }
 
 @Composable internal fun DeskMainPages(state: PagerState,modifier: Modifier=Modifier,
@@ -30,10 +32,10 @@ internal object DeskPage {
 
 @Composable internal fun DeskMainTabs(selectedPage: Int,onSelect: (Int)->Unit,modifier: Modifier=Modifier) {
     NavigationBar(modifier=modifier,containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp) {
-        listOf("工作台","X·速览","提醒","步数","设置").forEachIndexed {index,title->
+        listOf("工作台","提醒","设置").forEachIndexed {index,title->
             NavigationBarItem(selected=selectedPage==index,onClick={onSelect(index)},
                 label={Text(title,maxLines=1,overflow=TextOverflow.Ellipsis)},
-                icon={Icon(listOf(Icons.Default.Home,DigestIcon,Icons.AutoMirrored.Filled.List,StepsIcon,Icons.Default.Settings)[index],contentDescription=null)})
+                icon={Icon(listOf(Icons.Default.Home,Icons.AutoMirrored.Filled.List,Icons.Default.Settings)[index],contentDescription=null)})
         }
     }
 }

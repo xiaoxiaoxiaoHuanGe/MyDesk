@@ -18,7 +18,7 @@ import kotlinx.serialization.json.*
 
 @Composable internal fun StepsPage(snapshot: JsonObject,busy: Boolean,message: String,section: Int,onSection: (Int)->Unit,
     command: (String,JsonObject)->Unit,loadHistory: suspend (String,Int?)->List<JsonObject>,openUrl: (String)->Unit,
-    modifier: Modifier=Modifier,navigationKey: Int=0,connected: Boolean?=null) {
+    modifier: Modifier=Modifier,navigationKey: Int=0,connected: Boolean?=null,showTitle: Boolean=true) {
     val plan=snapshot.obj("wxstep_plan")
     val current=plan.obj("run")
     val zone=snapshot.text("timezone","Asia/Shanghai")
@@ -35,7 +35,7 @@ import kotlinx.serialization.json.*
         return
     }
     LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        item {DeskHeader("步数","",connected)}
+        if(showTitle) item {DeskHeader("步数","",connected)}
         item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("自动任务","手动提交","任务记录").forEachIndexed {index,title->

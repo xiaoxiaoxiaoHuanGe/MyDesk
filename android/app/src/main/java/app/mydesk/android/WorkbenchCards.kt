@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,7 +34,10 @@ import androidx.compose.ui.unit.dp
 }
 
 @Composable internal fun WorkbenchAttentionCard(attention: List<kotlinx.serialization.json.JsonObject>,hasSnapshot: Boolean,
-    busy: Boolean=false,onAcknowledge: (kotlinx.serialization.json.JsonObject)->Unit={},onOpen: (kotlinx.serialization.json.JsonObject)->Unit={}) {
+    busy: Boolean=false,onAcknowledge: (kotlinx.serialization.json.JsonObject)->Unit={},
+    completeReminder: ((kotlinx.serialization.json.JsonObject)->Unit)?=null,
+    canComplete: (kotlinx.serialization.json.JsonObject)->Boolean={true},
+    onOpen: (kotlinx.serialization.json.JsonObject)->Unit={}) {
     Card(Modifier.fillMaxWidth().height(280.dp).testTag("attention-card"),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),shape=MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxSize().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -44,13 +48,21 @@ import androidx.compose.ui.unit.dp
                 if(attention.isEmpty()) item {Text(if(hasSnapshot) "当前没有待处理事项" else "等待首次同步",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 items(attention) {entry ->
                     Surface(onClick={onOpen(entry)},shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerLow,modifier=Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Text(if(entry.text("kind")=="steps") entry.text("title").replaceFirst("微信步数","步数") else entry.text("title"),style=MaterialTheme.typography.titleSmall)
                             Text(if(entry.text("kind")=="steps" && entry.text("message")=="failure") "提交失败" else entry.text("message"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             if(entry.text("kind","")=="steps" && entry.text("ack_token","").isNotBlank()) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
                                 TextButton({onOpen(entry)},enabled=!busy) {Text("查看原因")}
                                 FilledTonalButton({onAcknowledge(entry)},enabled=!busy) {Text("已知晓")}
                             }
+                        }
+                        if(entry.text("kind")=="reminder" && completeReminder!=null) {
+                            IconButton(onClick={completeReminder(entry)},enabled=!busy && canComplete(entry),
+                                modifier=Modifier.testTag("complete-reminder-"+entry.text("id"))) {
+                                Icon(Icons.Default.Check,contentDescription="完成提醒："+entry.text("title"))
+                            }
+                        }
                         }
                     }
                 }

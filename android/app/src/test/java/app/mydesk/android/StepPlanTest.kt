@@ -25,6 +25,17 @@ import org.robolectric.annotation.LooperMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class StepPlanTest {
     @get:Rule val compose=createComposeRule()
+    @Test fun reminderCanBeCompletedWithoutOpeningItsAttentionDetail() {
+        val entry=deskJson.parseToJsonElement("""{"kind":"reminder","id":"r1","title":"今天的提醒","message":"已到提醒时间"}""").jsonObject
+        var completed=""
+        var opened=false
+        compose.setContent {MaterialTheme {WorkbenchAttentionCard(listOf(entry),true,
+            completeReminder={completed=it.text("id")},onOpen={opened=true})}}
+        compose.onNodeWithTag("complete-reminder-r1",useUnmergedTree=true).performClick()
+        compose.runOnIdle {assertEquals("r1",completed);assertFalse(opened)}
+        compose.onNodeWithText("今天的提醒").performClick()
+        compose.runOnIdle {assertTrue(opened)}
+    }
     @Test fun savingAnExistingLegacyConfigurationUpdatesItsPresetWithoutSelectingItAgain() {
         val plan=deskJson.parseToJsonElement("""{"settings":{"name":"散步","start":1000,"increment":30,"interval_minutes":3,"target":1090},"presets":[{"id":"walk","name":"散步","start":1000,"increment":30,"interval_minutes":3,"target":1090}],"revision":"rev"}""").jsonObject
         var sent=buildJsonObject {}
