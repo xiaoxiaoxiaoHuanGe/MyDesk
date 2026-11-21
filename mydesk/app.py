@@ -202,6 +202,14 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     async def inbox_detail(request):
         return web.json_response(await asyncio.to_thread((await runtime()).inbox.detail,request.match_info['message']))
 
+    async def mail_detail(request):
+        try:
+            return web.json_response(await (await runtime()).mail_detail(request.match_info['account'],request.match_info['uid']))
+        except LookupError as error:
+            raise web.HTTPNotFound(text=str(error)) from None
+        except Exception:
+            raise web.HTTPBadGateway(text='无法读取邮件正文，请检查邮箱连接后重试') from None
+
     async def inbox_read(request):
         result=await asyncio.to_thread((await runtime()).inbox.read,await request.json(),now_utc())
         await (await runtime()).publish()
@@ -521,6 +529,7 @@ def create_app(directory, scheduling=True, trusted_proxies=()):
     app.router.add_post('/api/inbox/read',inbox_read)
     app.router.add_post('/api/inbox/archive',inbox_archive)
     app.router.add_get('/api/inbox/{message}',inbox_detail)
+    app.router.add_get('/api/mail/{account:[A-Za-z0-9_-]{1,64}}/{uid:[0-9]{1,10}}',mail_detail)
     app.router.add_get('/api/app-update',app_update)
     app.router.add_get('/api/app-update/artifacts/{artifact}.apk',app_artifact)
     app.router.add_post('/api/logout',logout)

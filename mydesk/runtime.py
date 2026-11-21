@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from .domain import parse_time, validate_steps
-from .providers import GitHub, Beszel, OnePanel, poll_mail, poll_network, notification_data, run_state
+from .providers import GitHub, Beszel, OnePanel, fetch_mail_body, poll_mail, poll_network, notification_data, run_state
 from .config import mail_accounts,server_sources
 from .mail_proxy import MailProxyError
 from .github_checkins import CheckinPoller, task_binding, legacy_binding
@@ -34,6 +34,7 @@ class Runtime:
         self.manual_refresh = None
         self.notification_error = None
         self.last_mail_poll = None
+        self.mail_detail_limit = asyncio.Semaphore(2)
         self.quote_lock=asyncio.Lock()
         self.configure_checkins()
         self.inbox = Inbox(desk)
@@ -331,6 +332,21 @@ class Runtime:
                 operations.append(save('network', lambda: poll_network(self.session, self.config.get('network', {}))))
             await asyncio.gather(*operations)
             await self.publish()
+
+    async def mail_detail(self, account_id, uid):
+        spec = mail_accounts(self.config).get(account_id)
+        if not spec or not spec.get('enabled',True):
+            raise LookupError('该邮箱未接入或已停用')
+        state = await self.db('snapshot',now_utc(),{},self.config.get('stale_seconds',300))
+        accounts = state['feeds'].get('mail',{}).get('data',{}).get('accounts',[])
+        account = next((row for row in accounts if row['id']==account_id and row['username']==spec['username']),None)
+        mail = next((row for row in (account or {}).get('items',[]) if row['id']==f'{account_id}:{uid}'),None)
+        if mail is None or not mail.get('uidvalidity'):
+            raise LookupError('邮件列表已变化，请同步后再试')
+        async with self.mail_detail_limit:
+            body = await self.executor(fetch_mail_body,spec,uid,mail['uidvalidity'])
+        return {**body,'subject':mail['subject'],'sender':mail['sender'],'received_at':mail['received_at'],
+                'gmail_url':account['url']}
 
     async def poll_mail_accounts(self,now):
         semaphore=asyncio.Semaphore(4)

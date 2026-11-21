@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
+from html.parser import HTMLParser
 from urllib.parse import quote
 
 from aiohttp import ClientError, ClientTimeout
@@ -141,16 +142,93 @@ def parse_mail(raw, metadata, uid):
             'received_at': received, 'unread': not flags or b'\\Seen' not in flags[1]}
 
 
-def poll_mail(config):
-    """Run in executor. PEEK headers only, read-only mailbox, no body or mark-as-read."""
+def mail_connection(config):
     transport=ProxiedIMAP if config.get('proxy') else imaplib.IMAP4_SSL
     options={'proxy':config['proxy']} if config.get('proxy') else {}
-    with transport(config.get('host', 'imap.gmail.com'), port=993, timeout=20, **options,
-                          ssl_context=ssl.create_default_context()) as client:
+    return transport(config.get('host', 'imap.gmail.com'), port=993, timeout=20, **options,
+                     ssl_context=ssl.create_default_context())
+
+
+def mail_uidvalidity(client):
+    data = client.response('UIDVALIDITY')[1]
+    raw = data[0] if data else None
+    return raw.decode('ascii') if isinstance(raw, bytes) and raw.isdigit() else ''
+
+
+class MailTextParser(HTMLParser):
+    breaks = {'br', 'p', 'div', 'li', 'tr', 'blockquote', 'h1', 'h2', 'h3', 'pre'}
+    hidden = {'script', 'style', 'head', 'noscript'}
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.ignored = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.hidden:
+            self.ignored.append(tag)
+        elif tag in self.breaks and not self.ignored:
+            self.parts.append('\n')
+
+    def handle_endtag(self, tag):
+        if self.ignored and self.ignored[-1] == tag:
+            self.ignored.pop()
+        elif tag in self.breaks and not self.ignored:
+            self.parts.append('\n')
+
+    def handle_data(self, data):
+        if not self.ignored:
+            self.parts.append(data)
+
+
+def mail_body_text(raw):
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    part = message.get_body(preferencelist=('plain','html'))
+    if part is None:
+        return ''
+    content = part.get_payload(decode=True) or b''
+    try:
+        text = content.decode(part.get_content_charset() or 'utf-8',errors='replace')
+    except LookupError:
+        text = content.decode('utf-8',errors='replace')
+    if part.get_content_type() == 'text/html':
+        parser = MailTextParser()
+        parser.feed(text)
+        parser.close()
+        text = '\n'.join(line.strip() for line in ''.join(parser.parts).splitlines() if line.strip())
+    return text.strip()
+
+
+def fetch_mail_body(config, uid, validity):
+    limit = 262144
+    with mail_connection(config) as client:
+        client.login(config['username'], config['password'])
+        status, _ = client.select(config.get('mailbox','INBOX'),readonly=True)
+        if status != 'OK':
+            raise ValueError('无法打开邮件文件夹')
+        if not validity or mail_uidvalidity(client) != validity:
+            raise LookupError('邮件列表已变化，请同步后再试')
+        status, data = client.uid('fetch',uid,f'(RFC822.SIZE BODY.PEEK[]<0.{limit}>)')
+        if status != 'OK':
+            raise ValueError('无法获取邮件正文')
+        for part in data:
+            if isinstance(part,tuple):
+                raw = part[1][:limit]
+                size = re.search(rb'RFC822\.SIZE (\d+)',part[0])
+                body = mail_body_text(raw)
+                return {'body':body[:40000], 'truncated':len(body)>40000 or len(raw)==limit
+                        or bool(size and int(size[1])>len(raw))}
+        raise LookupError('这封邮件已不在收件箱')
+
+
+def poll_mail(config):
+    """Read-only inbox headers for the workbench."""
+    with mail_connection(config) as client:
         client.login(config['username'], config['password'])
         status, _ = client.select(config.get('mailbox', 'INBOX'), readonly=True)
         if status != 'OK':
             raise ValueError('无法打开邮箱文件夹')
+        validity = mail_uidvalidity(client)
         status, result = client.uid('search', None, 'ALL')
         if status != 'OK':
             raise ValueError('无法获取邮件列表')
@@ -165,7 +243,7 @@ def poll_mail(config):
                 raise ValueError('无法获取邮件标题')
             for part in data:
                 if isinstance(part, tuple):
-                    items.append(parse_mail(part[1], part[0], uid.decode()))
+                    items.append({**parse_mail(part[1], part[0], uid.decode()),'uidvalidity':validity})
                     break
         return {'items': items, 'unread': len(unread[0].split())}
 
